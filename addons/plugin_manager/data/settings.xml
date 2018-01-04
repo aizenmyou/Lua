@@ -1,19 +1,30 @@
 <settings>
 	<global>
 		<!-- This will be used for all the characters that you don't make a specific set of plugins/addons for -->
-		<plugin>Timers</plugin>
 	</global>
-	<YourName> <!-- This is just an example. You need to replace "YourName" to the left and below with the character name that you want the set of plugins to work for. -->
-		<plugin>Binder</plugin>
-		<plugin>ConsoleBG</plugin>
-		<plugin>FFOChat</plugin>
-		<plugin>Itemizer</plugin>
-		<plugin>SSOrganizer</plugin>
-		<plugin>Timers</plugin>
-		<plugin>Guildwork</plugin>
+	<Freazer> <!-- This is just an example. You need to replace "YourName" to the left and below with the character name that you want the set of plugins to work for. -->
+		<addon>barfiller</addon>		<!-- EXP bar above help window -->
+		<addon>chars</addon>			<!-- note and other pretty character -->
+		<!-- <addon>ChatLink</addon>	--> 		<!-- URLs in FFXI chat -->
+		<addon>craft</addon>			<!-- craft repeat commands, default food etc -->
+		<addon>DistancePlus</addon>		<!-- Distance value with additional magic/height information -->
+		<addon>GearSwap</addon>			<!-- fancy gear management system defined via Lua for pre/post casting -->
+		<addon>highlight</addon>		<!-- change color of party member names in chat for easier reading -->
+		<addon>instaLS</addon>			<!-- supposedly makes linkshell chat available more quickly -->
+		<addon>linker</addon>			<!-- URLs in FFXI chat -->
+		<addon>Logger</addon>			<!-- log all text to an external chat file -->
+		<addon>PetTP</addon>			<!-- Pet HP MP TP display -->
+		<addon>scoreboard</addon>		<!-- minimal damage meters -->
+		<addon>stopwatch</addon>		<!-- very simple start/stop/reset timer -->
+		<addon>targetinfo</addon>		<!-- detailed target information, memory analysis -->
+		<addon>TParty</addon>			<!-- display party's TP as overlay in bottom right -->
+		<addon>Yush</addon>				<!-- macro overwrite system -->
 		
-		<addon>send</addon>
-		<addon>battlemod</addon>
-		<addon>ffocolor</addon>
-	</YourName>
+		<addon>AutoSkill</addon>		<!-- PHOenICEtv personal creation -->
+		
+		<plugin>FFXIDB</plugin>			<!-- InGame minimap -->
+		<plugin>InfoBar</plugin>		<!-- various info about targets, level, aggression, linking, etc. -->
+		<plugin>Tickle</plugin>			<!-- shows next resting tick -->
+		<plugin>Timers</plugin>			<!-- ability timer bars, configurable display -->
+	</Freazer>
 </settings>
