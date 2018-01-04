@@ -1,13 +1,12 @@
-require('HelperMobData.lua')
-
 windower.register_event('target change',  function (target_index)
 	if target_index == 0 or target_index == 1024 then return end -- nothing or self
-	local zoneidstr = tostring(windower.ffxi.get_info().zone)
+	local zoneidstr = res.zones[windower.ffxi.get_info().zone].search
 	if table.isempty(settings.mob_ids.placeholders[zoneidstr]) then return end
 
 	local mob_data = windower.ffxi.get_mob_by_index(target_index)
 	local mobidstr = tostring(mob_data.id)
-	for i,v in pairs(mobdata.phs[zoneidstr]) do
+	if z_mobdata.phs[zoneidstr] == nil then return end
+	for i,v in pairs(z_mobdata.phs[zoneidstr]) do
 		if mobidstr == i then
 			windower.add_to_chat(17, ' -- '..mob_data.name..' id='..mobidstr..' is a placeholder for '..v)
 			return

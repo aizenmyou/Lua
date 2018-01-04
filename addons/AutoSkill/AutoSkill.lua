@@ -35,15 +35,18 @@ require('HelperMikeLuaLib')
 require('HelperSkillCapData')
 require('HelperSkillCapFunctions')
 
-mobdata = { ['nms'] = {}, ['phs'] = {} }
+z_mobdata = {}
+z_mobdata.nms = {}
+z_mobdata.phs = {}
 for i,zoneinfo in pairs(res.zones) do
-	mobdata.nms[zoneinfo.search] = {}
-	mobdata.phs[zoneinfo.search] = {}
+	z_mobdata.nms[zoneinfo.search] = {}
+	z_mobdata.phs[zoneinfo.search] = {}
 end
---require('HelperMobData')
+require('HelperMobData')
+require('HelperTracker')
 
--- todo: change buffs, cure spells, and ability lists to use res.spells etc
--- change zoneid and nm/ph information to use strings
+-- TODO: change buffs, cure spells, and ability lists to use res.spells etc
+-- TODO: change zoneid and nm/ph information to use strings
 
 -- Conventional settings layout
 local default_settings = {}
@@ -83,7 +86,7 @@ default_settings.skilldisplay.bg = {}
 default_settings.skilldisplay.bg.red   = 0
 default_settings.skilldisplay.bg.green = 0
 default_settings.skilldisplay.bg.blue  = 0
-default_settings.skilldisplay.bg.alpha = 128
+default_settings.skilldisplay.bg.alpha = 192
 default_settings.skilldisplay.flags = {}
 default_settings.skilldisplay.flags.italic = true
 default_settings.skilldisplay.text = {}
@@ -99,6 +102,10 @@ default_settings.skilldisplay.text.stroke.red   = 17
 default_settings.skilldisplay.text.stroke.green = 28
 default_settings.skilldisplay.text.stroke.blue  = 48
 default_settings.skilldisplay.text.stroke.alpha = 255
+default_settings.nms = {}
+default_settings.nms['Leaping_Lizzy'] = {}
+default_settings.nms['Leaping_Lizzy'].time_last_kill = 0
+default_settings.nms['Leaping_Lizzy'].ph_kills = 0
 
 settings = config.load(default_settings)
 local z_default_color = ''
@@ -117,44 +124,44 @@ end)
 local z_page_tracker = {}
 local z_mob_tracker = {}
 local z_mob_tracker_kills = 0
+local z_phnm_spawn_probability = 1
 local z_skill_tracker = {}
 local z_player = {}
 z_player.level_sync = 0
 z_player.skills = {}
 local z_textbox_misc = texts.new(settings.display, settings)
-
---default_settings.skilldisplay.text.stroke = {}
-settings.skilldisplay = default_settings.skilldisplay
 local z_textbox_skills = texts.new(settings.skilldisplay, settings)
+
 local MAX_LENGTH = 15
 textbox_reinitialize_function = function(textbox, settings)
 	local contents = L{}
-	contents:append(' == AutoSkill ==')
+	local elements = 0
+	contents:append(string.padcenter('== AutoSkill ==', MAX_LENGTH+5))
 	if table.size(z_page_tracker) > 0 then
+		elements = elements + 1
 		contents:append('Page status:')
 		for mobname, trackdata in pairs(z_page_tracker) do
-			local padded_name = ''
-			local mobname_len = mobname:len()
-			if mobname_len >= MAX_LENGTH then
-				padded_name = mobname:sub(1, MAX_LENGTH)
-			elseif mobname_len < MAX_LENGTH then
-				padded_name = mobname..string.rep(' ', MAX_LENGTH - mobname_len)
-			end
-
-			local page_line = padded_name..' ${pagea'..mobname..'}/${pageb'..mobname..'}'
-			contents:append(page_line)
+			local padded_name = string.padright(mobname, MAX_LENGTH)
+			contents:append(padded_name..' ${pagea'..mobname..'}/${pageb'..mobname..'}')
 		end
 	end
 	if table.size(z_mob_tracker) > 0 then
-		contents:append('Mob death tracker: ${mobkills}')
-		for mobid, mobdata in pairs(z_mob_tracker) do
-			local page_line = '${mobn'..mobid..'} '
-			page_line = page_line..' ${mobt'..mobid..'}s'
-			contents:append(page_line)
+		elements = elements + 1
+		contents:append('Mob deaths: '..z_mob_tracker_kills)
+		if z_phnm_spawn_probability ~= 1 then
+			contents:append('PH NM probability: '..string.format('%2.2f', (1-z_phnm_spawn_probability)*100)..'%')
+		end
+		for mobid, mob_data in pairs(z_mob_tracker) do
+			contents:append(string.padright(mob_data.name, MAX_LENGTH)..' ${mobt'..mobid..'}s')
 		end
 	end
 	textbox:clear()
-	textbox:append(contents:concat('\n'))
+	if elements > 0 then
+		textbox:append(contents:concat('\n'))
+		textbox:show()
+	else
+		textbox:hide()
+	end
 end
 z_textbox_misc:register_event('reload', textbox_reinitialize_function)
 
@@ -171,12 +178,20 @@ textbox_skills_reinitialize_function = function(textbox, settings)
 	-- TODO: smarter way to inject these but still enforce the desired order
 	local templine = ''
 	local subwepskill = ''
+	local cappedprefix = '\\cs(128,128,128)'
+	local cappedsuffix = '\\cr'
+
 	-- TODO: create a key to reference main and sub directly, no for-loop needed
 	for skillname, rating in pairs(JOB_WEAPON_RATINGS[z_player.mjtla]) do
 		local key = SKILL_KEYS[skillname]
 		if z_skill_tracker[key] ~= nil then
 			if z_skill_tracker[key].type == 'main' then
-				templine = skillname:rpad(' ', SKILL_PADDING).. ' ${cur'..key..'} / ${cap'..key..'}'
+				if z_skill_tracker[key].current == z_skill_tracker[key].cap then
+					local paddedcap = z_skill_tracker[key].cap:string():lpad(' ', 3)
+					templine = cappedprefix..skillname:rpad(' ', SKILL_PADDING).. ' '..paddedcap..' / '..paddedcap..cappedsuffix
+				else
+					templine = skillname:rpad(' ', SKILL_PADDING).. ' ${cur'..key..'} / ${cap'..key..'}'
+				end
 			else
 				subwepskill = skillname
 			end
@@ -184,6 +199,8 @@ textbox_skills_reinitialize_function = function(textbox, settings)
 	end
 	if subwepskill:len() > 0 then
 		local subkey = SKILL_KEYS[subwepskill]
+		-- TODO: finish engraining these values, they don't change very often
+		--if z_skill_tracker[key].current == z_skill_tracker[key].cap then
 		templine = templine..'   '..subwepskill:rpad(' ', SKILL_PADDING).. ' ${cur'..subkey..'} / ${cap'..subkey..'}'
 	end
 	if templine:len() > 0 then contents:append(templine) end
@@ -230,11 +247,7 @@ z_textbox_skills:register_event('reload', textbox_skills_reinitialize_function)
 
 windower.register_event('prerender', function()
 	local data = {}
-	local elements = 0
-	data.test = 'hi mom'
-
 	if table.size(z_page_tracker) > 0 then
-		elements = elements + 1
 		for mobname, trackdata in pairs(z_page_tracker) do
 			local colorprefix = ''
 			local colorpostfix = ''
@@ -247,20 +260,18 @@ windower.register_event('prerender', function()
 		end
 	end
 	if table.size(z_mob_tracker) > 0 then
-		elements = elements + 1
 		local curtime = os.time()
 		local removemobs = {}
 		data.mobkills = z_mob_tracker_kills
-		for mobid, mobdata in pairs(z_mob_tracker) do
+		for mobid, mob_data in pairs(z_mob_tracker) do
 			local colorprefix = ''
 			local colorpostfix = ''
 			local remaining_time = z_mob_tracker[mobid].respawn - curtime
 			if remaining_time < 10 then
-				colorprefix = '\\cs(255,0,0)'
+				colorprefix = '\\cs(255,200,200)'
 				colorpostfix = '\\cr'
 			end
 			if remaining_time > 0 then
-				data['mobn'..mobid] = colorprefix..mobdata.name:rpad(' ', MAX_LENGTH)..colorpostfix
 				data['mobt'..mobid] = colorprefix..remaining_time:string():lpad(' ', 3)..colorpostfix
 			else
 				table.insert(removemobs, mobid)
@@ -271,13 +282,7 @@ windower.register_event('prerender', function()
 		end
 		if table.getn(removemobs) > 0 then textbox_reinitialize_function(z_textbox_misc, settings) end
 	end
-
-	if elements > 0 then
-		z_textbox_misc:update(data)
-		z_textbox_misc:show()
-	else
-		z_textbox_misc:hide()
-	end
+	z_textbox_misc:update(data)
 
 	if table.size(z_skill_tracker) > 0 and settings.tracking_skills == 'on' then
 		-- red 53, green 140, blue 196
@@ -297,7 +302,6 @@ windower.register_event('prerender', function()
 			data['cap'..key] = (skilldata.cap):string():lpad(' ', 3)..colorpostfix
 		end
 		z_textbox_skills:update(data)
-		z_textbox_skills:show()
 	end
 end)
 
@@ -559,8 +563,6 @@ windower.register_event('gain buff', function (buffid)
 			return
 		end
 	end
-	-- TODO: is this required to detect level sync changes?
-	-- [269] = {id=269,en="Level Sync"
 end)
 
 windower.register_event('lose buff', function (lostid)
@@ -798,11 +800,20 @@ windower.register_event('action message', function(actor_id, target_id, actor_in
 	elseif message_id == 6 then -- <actor> defeats <target>.
 		z_most_recent_kill_id = target_id
 		if z_track_mode then
+			local respawn_time = 330 -- about 5 1/2 minutes by default
+			local curzone = res.zones[windower.ffxi.get_info().zone].search
 			local mob_data = windower.ffxi.get_mob_by_id(target_id)
 			--z_ph_info[target_id].last_death = os.time()
 			z_mob_tracker[target_id] = {}
 			z_mob_tracker[target_id].name = mob_data.name
-			z_mob_tracker[target_id].respawn = os.time() + 330 -- about 5 1/2 minutes
+			if z_mobdata.phs[curzone][target_id] ~= nil then 
+				if curzone == 'Oztroja' then respawn_time = 792 end
+				z_phnm_spawn_probability = z_phnm_spawn_probability * 0.95
+			elseif z_mobdata.nms[curzone][target_id] ~= nil then
+				z_phnm_spawn_probability = 1
+				respawn_time = z_mobdata.nms[curzone][target_id].respawn_minimum
+			end
+			z_mob_tracker[target_id].respawn = os.time() + respawn_time
 			z_mob_tracker_kills = z_mob_tracker_kills + 1
 			textbox_reinitialize_function(z_textbox_misc, settings)
 		end
@@ -861,8 +872,10 @@ windower.register_event('action message', function(actor_id, target_id, actor_in
 						entry_name = pagename
 					end
 				end
-				z_page_tracker[entry_name] = {}
-				z_page_tracker[entry_name].needed = param_2
+				if z_page_tracker[entry_name] == nil then -- still couldn't find it, start a new entry
+					z_page_tracker[entry_name] = {}
+					z_page_tracker[entry_name].needed = param_2
+				end
 				textbox_reinitialize_function(z_textbox_misc, settings)
 			end
 			z_page_tracker[entry_name].progress = param_1
@@ -1199,8 +1212,8 @@ local function displayStats()
 
 	local zonephcount, zonenmcount = 0, 0
 	local zonestr = res.zones[windower.ffxi.get_info().zone].search
-	if table.isnotempty(mobdata.phs[zonestr]) then zonephcount = table.size(settings.mob_ids.placeholders[zoneidstr]) end
-	if table.isnotempty(mobdata.nms[zonestr]) then zonenmcount = table.size(settings.mob_ids.nms[zoneidstr]) end
+	if table.isnotempty(z_mobdata.phs[zonestr]) then zonephcount = table.size(settings.mob_ids.placeholders[zoneidstr]) end
+	if table.isnotempty(z_mobdata.nms[zonestr]) then zonenmcount = table.size(settings.mob_ids.nms[zoneidstr]) end
 	windower.add_to_chat(100, 'Current zone has '..zonenmcount..' NMs recorded and '..zonephcount..' placeholders.')
 end
 
@@ -1229,19 +1242,21 @@ local function displayHelp()
 end
 
 windower.register_event('addon command',function (...)
+	local varargs = {...}
 	local param = {}
-	for i,v in ipairs({...}) do
+	local paramcount = 0
+	for i,v in ipairs(varargs) do
 		table.insert(param, tonumber(v) or v:lower())
+		paramcount = paramcount + 1
 	end
-	local paramcount = table.getn({...})
 	if paramcount == 0 or param[1] == 'help' or param[1] == '?' then
 		displayHelp()
 		return
 	end
 	local paramtwoall = ''
 	if paramcount > 1 then
-		paramtwoall = {...}[2]
-		for i=3,paramcount,1 do paramtwoall = paramtwoall..' '..{...}[i] end
+		paramtwoall =varargs[2]
+		for i=3,paramcount,1 do paramtwoall = paramtwoall..' '..varargs[i] end
 	end
 	
 	if param[1] == 'melee' or param[1] == 'ranged' or param[1] == 'both' then
@@ -1349,7 +1364,7 @@ windower.register_event('addon command',function (...)
 		end
 	elseif param[1] == 'check' then
 		isTargetEnemySkillable(true)
-	--elseif trackerCommand(param, paramcount, paramtwoall) then
+	elseif trackerCommand(param, paramcount, paramtwoall) then
 		-- one of the tracker commands worked
 	elseif skillCommand(param, paramcount, paramtwoall) then
 		-- one of the SkillCap commands worked
