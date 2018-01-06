@@ -97,6 +97,8 @@ default_settings.skilldisplay.text.green = 210
 default_settings.skilldisplay.text.blue  = 214
 default_settings.skilldisplay.text.alpha = 255
 default_settings.skilldisplay.text.stroke = {}
+-- capped font: red 53, green 140, blue 196
+-- stroke: red 17, green 28, blue 48
 default_settings.skilldisplay.text.stroke.width = 2
 default_settings.skilldisplay.text.stroke.red   = 17
 default_settings.skilldisplay.text.stroke.green = 28
@@ -124,8 +126,10 @@ end)
 local z_page_tracker = {}
 local z_mob_tracker = {}
 local z_mob_tracker_kills = 0
-local z_phnm_spawn_probability = 1
+local z_phnm_spawn = {}
 local z_skill_tracker = {}
+windower.add_to_chat(17, ' -- assignment traceback: '..debug.traceback())
+
 local z_player = {}
 z_player.level_sync = 0
 z_player.skills = {}
@@ -146,10 +150,14 @@ textbox_reinitialize_function = function(textbox, settings)
 		end
 	end
 	if table.size(z_mob_tracker) > 0 then
+		if elements > 0 then contents:append('') end
 		elements = elements + 1
-		contents:append('Mob deaths: '..z_mob_tracker_kills)
-		if z_phnm_spawn_probability ~= 1 then
-			contents:append('PH NM probability: '..string.format('%2.2f', (1-z_phnm_spawn_probability)*100)..'%')
+		contents:append('Total : '..z_mob_tracker_kills)
+		for nmid, phtrackdata in pairs(z_phnm_spawn) do
+			contents:append('PH for '..z_phnm_spawn.name..' kills='..z_phnm_spawn.kills)
+			contents:append('  geo.distrib: '..string.format('%02.02f', (1-z_phnm_spawn.probability)*100)..'%')
+			local templine = ''
+			contents:append('  dead/total: ${phdead'..nmid..'}/'..z_phnm_spawn.total)
 		end
 		for mobid, mob_data in pairs(z_mob_tracker) do
 			contents:append(string.padright(mob_data.name, MAX_LENGTH)..' ${mobt'..mobid..'}s')
@@ -165,6 +173,27 @@ textbox_reinitialize_function = function(textbox, settings)
 end
 z_textbox_misc:register_event('reload', textbox_reinitialize_function)
 
+local SKILL_PADDING = 12
+local SKILL_WIDTH_TOTAL = (SKILL_PADDING + 8)*2 + 2
+local function textbox_skills_add_data(data, index, templine)
+	local add_to_data = false
+	if templine:len() > 0 then
+		add_to_data = true
+		templine = templine..'  '
+	end
+	if z_skill_tracker[index].is_capped then
+		templine = templine..z_skill_tracker[index].name.. ' \\cs(53,140,196)'..z_skill_tracker[index].cap..'/'..z_skill_tracker[index].cap..'\\cr'
+	else
+		templine = templine..z_skill_tracker[index].name.. ' ${cur'..index..'}/'..z_skill_tracker[index].cap
+	end
+
+	if add_to_data then
+		data:append(templine)
+		return ''
+	end
+	return templine
+end
+
 textbox_skills_reinitialize_function = function(textbox, settings)
 	--windower.add_to_chat(17, 'Skill text box='..settings.tracking_skills..' and size='..table.size(z_skill_tracker))
 	if table.size(z_skill_tracker) == 0 or settings.tracking_skills == 'off' then
@@ -173,70 +202,18 @@ textbox_skills_reinitialize_function = function(textbox, settings)
 		return
 	end
 
-	local SKILL_PADDING = 12
 	local contents = L{}
-	-- TODO: smarter way to inject these but still enforce the desired order
+	--contents:append(string.padcenter('== Skill Caps ==', SKILL_WIDTH_TOTAL))
+	local header = '=== Skill Caps lv'..z_player.mjlvl..' '..z_player.mjtla..' ==='
+	-- '== Skill Caps =='
+	contents:append(string.padcenter(header, SKILL_WIDTH_TOTAL))
+	--contents:append(header)
+
 	local templine = ''
-	local subwepskill = ''
-	local cappedprefix = '\\cs(128,128,128)'
-	local cappedsuffix = '\\cr'
-
-	-- TODO: create a key to reference main and sub directly, no for-loop needed
-	for skillname, rating in pairs(JOB_WEAPON_RATINGS[z_player.mjtla]) do
-		local key = SKILL_KEYS[skillname]
-		if z_skill_tracker[key] ~= nil then
-			if z_skill_tracker[key].type == 'main' then
-				if z_skill_tracker[key].current == z_skill_tracker[key].cap then
-					local paddedcap = z_skill_tracker[key].cap:string():lpad(' ', 3)
-					templine = cappedprefix..skillname:rpad(' ', SKILL_PADDING).. ' '..paddedcap..' / '..paddedcap..cappedsuffix
-				else
-					templine = skillname:rpad(' ', SKILL_PADDING).. ' ${cur'..key..'} / ${cap'..key..'}'
-				end
-			else
-				subwepskill = skillname
-			end
-		end
+	for i, skilltable in ipairs(z_skill_tracker) do
+		templine = textbox_skills_add_data(contents, i, templine)
 	end
-	if subwepskill:len() > 0 then
-		local subkey = SKILL_KEYS[subwepskill]
-		-- TODO: finish engraining these values, they don't change very often
-		--if z_skill_tracker[key].current == z_skill_tracker[key].cap then
-		templine = templine..'   '..subwepskill:rpad(' ', SKILL_PADDING).. ' ${cur'..subkey..'} / ${cap'..subkey..'}'
-	end
-	if templine:len() > 0 then contents:append(templine) end
-	
-	if z_ranged_skilltype > 0 and JOB_RANGED_RATINGS[z_player.mjtla] ~= nil then
-		local skillname = res.skills[z_ranged_skilltype].en
-		local key = SKILL_KEYS[skillname]
-		contents:append(skillname:rpad(' ', SKILL_PADDING).. ' ${cur'..key..'} / ${cap'..key..'}')
-	end
-
-	if JOB_MAGIC_RATINGS[z_player.mjtla] ~= nil then
-		templine = ''
-		for skillname, rating in pairs(JOB_MAGIC_RATINGS[z_player.mjtla]) do
-			local key = SKILL_KEYS[skillname]
-			if templine:len() == 0 then
-				templine = skillname:rpad(' ', SKILL_PADDING).. ' ${cur'..key..'} / ${cap'..key..'}'
-			else
-				templine = templine..'   '..skillname:rpad(' ', SKILL_PADDING).. ' ${cur'..key..'} / ${cap'..key..'}'
-				contents:append(templine)
-				templine = ''
-			end
-		end
-		if templine:len() > 0 then contents:append(templine) end
-	end
-
-	templine = ''
-	for skillname, rating in pairs(JOB_DEFENSIVE_RATINGS[z_player.mjtla]) do
-		local key = SKILL_KEYS[skillname]
-		if templine:len() == 0 then
-			templine = skillname:rpad(' ', SKILL_PADDING)..' ${cur'..key..'} / ${cap'..key..'}'
-		else
-			templine = templine..'   '..skillname:rpad(' ', SKILL_PADDING).. ' ${cur'..key..'} / ${cap'..key..'}'
-			contents:append(templine)
-			templine = ''
-		end
-	end
+	-- added two skills at a time. if there's an odd number, add the last one
 	if templine:len() > 0 then contents:append(templine) end
 
 	textbox:clear()
@@ -256,9 +233,9 @@ windower.register_event('prerender', function()
 				colorpostfix = '\\cr'
 			end
 			data['pagea'..mobname] = colorprefix..trackdata.progress
-			data['pageb'..mobname] = trackdata.needed..colorpostfix
 		end
 	end
+
 	if table.size(z_mob_tracker) > 0 then
 		local curtime = os.time()
 		local removemobs = {}
@@ -285,21 +262,13 @@ windower.register_event('prerender', function()
 	z_textbox_misc:update(data)
 
 	if table.size(z_skill_tracker) > 0 and settings.tracking_skills == 'on' then
-		-- red 53, green 140, blue 196
-		-- red 17, green 28, blue 48
 		local data = {}
-		local capcolor = '\\cs(53,140,196)'
-		for key, skilldata in pairs(z_skill_tracker) do
-			local colorprefix = ''
-			local colorpostfix = ''
-			if skilldata.current == skilldata.cap then
-				colorprefix = capcolor
-				colorpostfix = '\\cr'
+		for index, skilldata in ipairs(z_skill_tracker) do
+			if skilldata.is_capped then
+				data['cur'..index] = '\\cs(53,140,196)'..skilldata.current..'\\cr'
+			else
+				data['cur'..index] = skilldata.current
 			end
-			if skilldata.current == nil then skilldata.current = -98 end
-			if skilldata.cap == nil then skilldata.cap = -99 end
-			data['cur'..key] = colorprefix..(skilldata.current):string():lpad(' ', 3)
-			data['cap'..key] = (skilldata.cap):string():lpad(' ', 3)..colorpostfix
 		end
 		z_textbox_skills:update(data)
 	end
@@ -366,71 +335,56 @@ function recalculateRangedDelay()
 	end
 end
 
+function addSkillTrackWeapon(skillname)
+	local mainkey = SKILL_KEYS[skillname]
+	if z_player.skills[mainkey] == nil then return end
+
+	local skilldata = {}
+	skilldata = {}
+	skilldata.id = SKILL_IDS[skillname]
+	skilldata.name = skillname:rpad(' ', SKILL_PADDING)
+	skilldata.current = (z_player.skills[mainkey]):string():lpad(' ', 3)
+	skilldata.cap = getSkillCapFor(z_player.mjtla, z_player.effective_level, skillname):string():lpad(' ', 3)
+	skilldata.is_capped = (skilldata.current == skilldata.cap)
+	table.insert(z_skill_tracker, skilldata)
+end
+
 function recalculateWeaponry()
-	local effective_level = z_player.mjlvl
-	if z_player.level_sync ~= 0 and z_player.level_sync < z_player.mjlvl then effective_level = z_player.level_sync end
+	windower.add_to_chat(100, 'Recalculating weaponry...')
 	z_skill_tracker = {}
+	windower.add_to_chat(17, ' -- assignment traceback: '..debug.traceback())
+
 	local gear = windower.ffxi.get_items()['equipment']
 	--windower.add_to_chat(17, 'error finding thingy, player skill dump: '..table.tostring(z_player.skills))
 	if gear.main > 0 then -- check if main weapon exists, pull it's information
 		local mainweapon_info = windower.ffxi.get_items(gear.main_bag, gear.main)
 		if mainweapon_info ~= nil then
 			local mainwepskillname = res.skills[res.items[mainweapon_info.id].skill].en
-			local mainkey = SKILL_KEYS[mainwepskillname]
-			if z_player.skills[mainkey] ~= nil then
-				z_skill_tracker[mainkey] = {}
-				z_skill_tracker[mainkey].type = 'main'
-				z_skill_tracker[mainkey].current = z_player.skills[mainkey]
-				z_skill_tracker[mainkey].cap = getSkillCapFor(z_player.mjtla, effective_level, mainwepskillname)
-			else
-				windower.add_to_chat(17, 'error finding thingy, player skill dump: '..table.tostring(z_player.skills))
-			end
-			
+			addSkillTrackWeapon(mainwepskillname)
 			if gear.sub > 0 then -- if main hand exists, maybe offhand? attempt to pull sub weapon information
 				local subweapon_info = windower.ffxi.get_items(gear.sub_bag, gear.sub)
-				--if subweapon_info ~= nil then
 				local subwepskillname = res.skills[res.items[subweapon_info.id].skill].en
-				local subkey = SKILL_KEYS[subwepskillname]
 				if mainwepskillname ~= subwepskillname then
-					z_skill_tracker[subkey] = {}
-					z_skill_tracker[subkey].type = 'sub'
-					z_skill_tracker[subkey].current = z_player.skills[subkey]
-					z_skill_tracker[subkey].cap = getSkillCapFor(z_player.mjtla, effective_level, subwepskillname)
+					addSkillTrackWeapon(subwepskillname)
 				end
 			end
 		else
 			windower.add_to_chat(17, 'Main hand contained index='..gear.main..' but weapon_info could not be found.')
 		end
 	elseif JOB_WEAPON_RATINGS[z_player.mjtla]['Hand-to-Hand'] ~= nil then -- no main weapon, h2h skill?
-		local key = 'hand_to_hand'
-		z_skill_tracker[key] = {}
-		z_skill_tracker[key].type = 'main'
-		z_skill_tracker[key].current = z_player.skills[key]
-		z_skill_tracker[key].cap = getSkillCapFor(z_player.mjtla, effective_level, 'Hand-to-Hand')
+		addSkillTrackWeapon('Hand-to-Hand')
 	end
 
 	-- computer ranged weapon's ammunition and skill mode
 	recalculateRangedDelay()
 	if z_ranged_skilltype > 0 then
-		local rangeskillname = res.skills[z_ranged_skilltype].en
-		local key = SKILL_KEYS[rangeskillname]
-		z_skill_tracker[key] = {}
-		z_skill_tracker[key].current = z_player.skills[key]
-		z_skill_tracker[key].cap = getSkillCapFor(z_player.mjtla, effective_level, rangeskillname)
+		addSkillTrackWeapon(res.skills[z_ranged_skilltype].en)
 	end
-	if JOB_MAGIC_RATINGS[z_player.mjtla] ~= nil then -- sparse table, not all jobs
-		for magname, rating in pairs(JOB_MAGIC_RATINGS[z_player.mjtla]) do
-			local key = SKILL_KEYS[magname]
-			z_skill_tracker[key] = {}
-			z_skill_tracker[key].current = z_player.skills[key]
-			z_skill_tracker[key].cap = getSkillCapFor(z_player.mjtla, effective_level, magname)
-		end
+	for magname, rating in npairs(JOB_MAGIC_RATINGS[z_player.mjtla]) do
+		addSkillTrackWeapon(magname)
 	end
 	for defname, rating in pairs(JOB_DEFENSIVE_RATINGS[z_player.mjtla]) do
-		local key = SKILL_KEYS[defname]
-		z_skill_tracker[key] = {}
-		z_skill_tracker[key].current = z_player.skills[key]
-		z_skill_tracker[key].cap = getSkillCapFor(z_player.mjtla, effective_level, defname)
+		addSkillTrackWeapon(defname)
 	end
 	textbox_skills_reinitialize_function(z_textbox_skills, settings)
 end
@@ -448,6 +402,9 @@ function recalculateVitals()
 	z_player.jobs[player.main_job_id] = player.main_job_level
 	z_player.mjtla = res.jobs[player.main_job_id].ens
 	z_player.mjlvl = player.main_job_level
+	z_player.effective_level = z_player.mjlvl
+	if z_player.level_sync ~= 0 and z_player.level_sync < z_player.mjlvl then z_player.effective_level = z_player.level_sync end
+
 	if player.sub_job_id ~= nil then 
 	    z_player.jobs[player.sub_job_id] = player.sub_job_level
 		z_player.sjtla = res.jobs[player.sub_job_id].ens
@@ -613,13 +570,15 @@ windower.register_event('job change', function (main_job_id, main_job_level, sub
 end)
 
 windower.register_event('level up', function (level)
-	if z_player.level_sync >= level then
+	if level <= z_player.level_sync or z_player.level_sync == 0 then
 		coroutine.schedule(recalculateVitals, 8)
 	end
 end)
 
 windower.register_event('level down', function (level)
-	coroutine.schedule(recalculateVitals, 8)
+	if level <= z_player.level_sync or z_player.level_sync == 0 then
+		coroutine.schedule(recalculateVitals, 8)
+	end
 end)
 
 windower.register_event('status change', function (newstatus, oldstatus)
@@ -806,11 +765,28 @@ windower.register_event('action message', function(actor_id, target_id, actor_in
 			--z_ph_info[target_id].last_death = os.time()
 			z_mob_tracker[target_id] = {}
 			z_mob_tracker[target_id].name = mob_data.name
-			if z_mobdata.phs[curzone][target_id] ~= nil then 
+			local my_nm = z_mobdata.phs[curzone][target_id]
+			if my_nm ~= nil then -- target was a placeholder
 				if curzone == 'Oztroja' then respawn_time = 792 end
+				if z_phnm_spawn[my_nm] == nil then
+					z_phnm_spawn[my_nm].kills = 0
+					z_phnm_spawn[my_nm].probability = 1
+					z_phnm_spawn[my_nm].total = 0
+					for phid,nmid in z_mobdata.phs[curzone] do
+						if my_nm == v then
+							z_phnm_spawn[target_id].total = z_phnm_spawn[target_id].total + 1
+						end
+					end
+
+					if z_mobdata.phs[curzone][target_id] ~= nil then 
+					z_phnm_spawn[target_id].total = 5
+				end
 				z_phnm_spawn_probability = z_phnm_spawn_probability * 0.95
-			elseif z_mobdata.nms[curzone][target_id] ~= nil then
-				z_phnm_spawn_probability = 1
+			end
+			if z_mobdata.nms[curzone][target_id] ~= nil then -- target was an NM
+				if z_phnm_spawn[target_id] ~= nil then
+					z_phnm_spawn[target_id].probability = 1
+				end
 				respawn_time = z_mobdata.nms[curzone][target_id].respawn_minimum
 			end
 			z_mob_tracker[target_id].respawn = os.time() + respawn_time
@@ -819,14 +795,32 @@ windower.register_event('action message', function(actor_id, target_id, actor_in
 		end
 		verboseActionMessage(actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
 	elseif message_id == 38 then --	<target>'s <skill> skill rises 0.<number> points.
-		if z_skill_tracker[SKILL_KEYS[param_1]] == nil then -- got a skill up on a weapon we weren't tracking, must have changed gear
+		local index = 0
+		for i,skilldata in pairs(z_skill_tracker) do
+			if skilldata.id == param_1 then
+				index = i
+				break
+			end
+		end
+		if index == 0 then -- got a skill up on a weapon we weren't tracking, must have changed gear
 			recalculateWeaponry()
 		end
 	elseif message_id == 53 then -- <target>'s <skill> skill reaches level <number>.
-		if z_skill_tracker[SKILL_KEYS[param_1]] == nil then -- must have changed weapons?
+		local index = 0
+		for i,skilldata in pairs(z_skill_tracker) do
+			if skilldata.id == param_1 then
+				index = i
+				break
+			end
+		end
+		if index == 0 then -- must have changed weapons?
+			windower.add_to_chat(100, 'Warning! Could not find skill in tracker, yet gained a skill up...')
 			recalculateWeaponry()
-		else -- update the skill listing
-			z_skill_tracker[SKILL_KEYS[param_1]].current = param_2
+		else -- update the skill's current value
+			 z_skill_tracker[index].current = param_2:string():lpad(' ', 3)
+			 if z_skill_tracker[index].current == z_skill_tracker[index].capped then
+				z_skill_tracker[index].is_capped = true
+			end
 		end
 	elseif message_id == 101 then -- <actor> uses <weapon_skill>.
 		if actor_id == z_player_id then

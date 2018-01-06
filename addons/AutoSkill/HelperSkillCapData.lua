@@ -21,6 +21,7 @@ for i,jobdata in pairs(res.jobs) do
 	VALID_JOBS[jobdata.ens] = 1
 end
 SKILL_KEYS = {}
+SKILL_IDS = {}
 for i,skilldata in pairs(res.skills) do
 	if i > 0 then
 		local key = skilldata.en:lower()
@@ -30,7 +31,10 @@ for i,skilldata in pairs(res.skills) do
 		shortened = shortened:gsub(' Magic', '')
 		shortened = shortened:gsub(' Instrument', '')
 		SKILL_KEYS[shortened] = key -- ['Hand-to-Hand'] -> 'hand_to_hand'
+		SKILL_KEYS[key] = shortened -- ['Hand-to-Hand'] -> 'hand_to_hand'
 		SKILL_KEYS[i] = key -- store [1] -> 'hand_to_hand'
+		SKILL_IDS[shortened] = i
+		SKILL_IDS[key] = i
 	end
 end
 

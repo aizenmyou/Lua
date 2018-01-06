@@ -71,7 +71,18 @@ z_mobdata.phs['Oztroja'][17395775] = { ['related_nm'] = 17395800 }
 -- Saa Doyi the Fervid
 z_mobdata.nms['Oztroja'][17395731] = {}
 z_mobdata.nms['Oztroja'][17395731].respawn_minimum = 3600 
--- ====== South Gustaberg ======
+-- Quu Domi the Gallant
+z_mobdata.nms['Oztroja'][17395870] = {}
+z_mobdata.nms['Oztroja'][17395870].respawn_minimum =  3600
+z_mobdata.nms['Oztroja'][17395870].respawn_maximum = 10800
+z_mobdata.phs['Oztroja'][17395844] = { ['related_nm'] = 17395870 }
+z_mobdata.phs['Oztroja'][17395845] = { ['related_nm'] = 17395870 }
+z_mobdata.phs['Oztroja'][17395853] = { ['related_nm'] = 17395870 }
+z_mobdata.phs['Oztroja'][17395831] = { ['related_nm'] = 17395870 }
+z_mobdata.phs['Oztroja'][17395868] = { ['related_nm'] = 17395870 }
+z_mobdata.phs['Oztroja'][17395867] = { ['related_nm'] = 17395870 }
+z_mobdata.phs['Oztroja'][17395829] = { ['related_nm'] = 17395870 }
+-- ====== South Gustaberg ======	 { ['related_nm'] = 
 -- Leaping Lizzy -- in this case there are two placeholders and two Leaping Lizzy definitions?
 z_mobdata.nms['SGustaberg'][17215868] = {}
 z_mobdata.nms['SGustaberg'][17215868].respawn_minimum = 3600

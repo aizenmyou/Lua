@@ -1,3 +1,8 @@
+function npairs(tbl)
+	if table == nil then return pairs({}) end
+	return pairs({})
+end
+
 function table.val_to_str(v)
 	if "string" == type(v) then
 		v = string.gsub(v, '\n', '\\n')
@@ -59,18 +64,18 @@ end
 function string.padleft(str, max_len)
 	local len = str:len()
 	if len >= max_len then return str:sub(1, max_len) end
-	return (' '):rep(max_len - len)..str
+	return ' ':rep(max_len - len)..str
 end
 
 function string.padright(str, max_len)
 	local len = str:len()
 	if len >= max_len then return str:sub(1, max_len) end
-	return str..(' '):rep(max_len - len)
+	return str..' ':rep(max_len - len)
 end
 
 function string.padcenter(str, max_len)
 	local len = str:len()
 	if len >= max_len then return str:sub(1, max_len) end
 	local leftpad = math.floor((max_len - len) / 2)
-	return (' '):rep(leftpad)..str..(' '):rep(max_len - (len + leftpad))
+	return ' ':rep(leftpad)..str..' ':rep(max_len - (len + leftpad))
 end
