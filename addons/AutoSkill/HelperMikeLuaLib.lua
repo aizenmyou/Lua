@@ -1,6 +1,6 @@
 function npairs(tbl)
 	if table == nil then return pairs({}) end
-	return pairs({})
+	return pairs(tbl)
 end
 
 function table.val_to_str(v)
@@ -69,6 +69,11 @@ end
 
 function string.padright(str, max_len)
 	local len = str:len()
+	if len == nil or max_len == nil then
+		windower.add_to_chat(17, ' -- nil catch in string.padright: '..debug.traceback())
+		return '0xBAADF00D'
+	end
+
 	if len >= max_len then return str:sub(1, max_len) end
 	return str..' ':rep(max_len - len)
 end

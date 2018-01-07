@@ -1,3 +1,8 @@
+--TODO: page tracking needs completion and testing
+--TODO: fancy ordered insertion based on different respawn times
+--TODO: change buffs, cure spells, and ability lists to use res.spells etc
+--TODO: change zoneid and nm/ph information to use strings
+
 --Copyright (c) 2018, freeZerg
 --All rights reserved.
 
@@ -35,6 +40,7 @@ require('HelperMikeLuaLib')
 require('HelperSkillCapData')
 require('HelperSkillCapFunctions')
 
+local MAX_LENGTH = 15
 z_mobdata = {}
 z_mobdata.nms = {}
 z_mobdata.phs = {}
@@ -45,8 +51,18 @@ end
 require('HelperMobData')
 require('HelperTracker')
 
--- TODO: change buffs, cure spells, and ability lists to use res.spells etc
--- TODO: change zoneid and nm/ph information to use strings
+local z_page_tracker = {}
+local z_mob_tracker = {}
+local z_mob_tracker_order = {}
+local z_mob_tracker_kills = 0
+local z_phnm_spawn = {}
+local z_skill_tracker = {}
+local z_skill_tracker_weapon_order = {}
+local z_skill_tracker_magic_order = {}
+local z_skill_tracker_defense_order = {}
+local z_player = {}
+z_player.level_sync = 0
+z_player.skills = {}
 
 -- Conventional settings layout
 local default_settings = {}
@@ -58,7 +74,10 @@ default_settings.sound_files.book_complete['e']  = 'book_finish_e.wav'
 default_settings.sound_files.book_complete['f']  = 'book_finish_f.wav'
 default_settings.sound_files.book_complete['fs'] = 'book_finish_fsharp.wav'
 default_settings.sound_files.book_complete['g']  = 'book_finish_g.wav'
-default_settings.plays_sounds = 'on'
+default_settings.page_tracker = {}
+-- TODO: implement persistent NM last kill seen measurements
+-- default_settings.mob_tracker = {}
+default_settings.play_sounds = 'on'
 default_settings.ammunition_name = 'Horn Arrow'
 default_settings.ammunition_id = 18156
 default_settings.tracking_skills = 'on'
@@ -110,6 +129,8 @@ default_settings.nms['Leaping_Lizzy'].time_last_kill = 0
 default_settings.nms['Leaping_Lizzy'].ph_kills = 0
 
 settings = config.load(default_settings)
+local z_textbox_misc = texts.new(settings.display, settings)
+local z_textbox_skills = texts.new(settings.skilldisplay, settings)
 local z_default_color = ''
 config.register(settings, function ()
 	if settings.nm_scan_repeat ~= 0 and settings.nm_scan_repeat < 5 then settings.nm_scan_repeat = 5 end
@@ -121,22 +142,29 @@ config.register(settings, function ()
 	z_default_color = z_default_color..settings.display.text.green..','
 	z_default_color = z_default_color..settings.display.text.blue..')'
 
+	if settings.page_tracker ~= nil and table.size(settings.page_tracker) > 0 then
+		z_page_tracker = {}
+		for index,pagedata in pairs(settings.page_tracker) do
+			local i = tonumber(index)
+			z_page_tracker[i] = {}
+			if pagedata.name == nil then 
+				windower.add_to_chat(17, ' -- Were looping on page_tracker yet name was nil, dump: '..table.tostring(pagedata))
+			end
+
+			z_page_tracker[i].name = string.padright(pagedata.name, MAX_LENGTH)
+			z_page_tracker[i].progress = tonumber(pagedata.progress)
+			z_page_tracker[i].needed = tonumber(pagedata.needed)
+			--if pagedata.is_family == 'true' then
+			--	z_page_tracker[i].is_family = true
+			--else
+			--	z_page_tracker[i].is_family = false
+			--end
+			z_page_tracker[i].is_family = pagedata.is_family
+		end
+		textbox_reinitialize_function(z_textbox_misc, settings)
+	end
 end)
 
-local z_page_tracker = {}
-local z_mob_tracker = {}
-local z_mob_tracker_kills = 0
-local z_phnm_spawn = {}
-local z_skill_tracker = {}
-windower.add_to_chat(17, ' -- assignment traceback: '..debug.traceback())
-
-local z_player = {}
-z_player.level_sync = 0
-z_player.skills = {}
-local z_textbox_misc = texts.new(settings.display, settings)
-local z_textbox_skills = texts.new(settings.skilldisplay, settings)
-
-local MAX_LENGTH = 15
 textbox_reinitialize_function = function(textbox, settings)
 	local contents = L{}
 	local elements = 0
@@ -144,9 +172,9 @@ textbox_reinitialize_function = function(textbox, settings)
 	if table.size(z_page_tracker) > 0 then
 		elements = elements + 1
 		contents:append('Page status:')
-		for mobname, trackdata in pairs(z_page_tracker) do
-			local padded_name = string.padright(mobname, MAX_LENGTH)
-			contents:append(padded_name..' ${pagea'..mobname..'}/${pageb'..mobname..'}')
+		for i, pagedata in ipairs(z_page_tracker) do
+			local padded_name = string.padright(pagedata.name, MAX_LENGTH)
+			contents:append('${pagec'..i..'}'..pagedata.name..' ${pagep'..i..'}/'..pagedata.needed..'\\cr')
 		end
 	end
 	if table.size(z_mob_tracker) > 0 then
@@ -154,13 +182,13 @@ textbox_reinitialize_function = function(textbox, settings)
 		elements = elements + 1
 		contents:append('Total : '..z_mob_tracker_kills)
 		for nmid, phtrackdata in pairs(z_phnm_spawn) do
-			contents:append('PH for '..z_phnm_spawn.name..' kills='..z_phnm_spawn.kills)
-			contents:append('  geo.distrib: '..string.format('%02.02f', (1-z_phnm_spawn.probability)*100)..'%')
-			local templine = ''
-			contents:append('  dead/total: ${phdead'..nmid..'}/'..z_phnm_spawn.total)
+			contents:append('PH for '..phtrackdata.name..' kills='..phtrackdata.kills)
+			contents:append('  geo.distrib: '..string.format('%02.02f', (1-phtrackdata.probability)*100)..'%')
+			contents:append('  dead/total: ${phdead'..nmid..'}/'..phtrackdata.total)
 		end
-		for mobid, mob_data in pairs(z_mob_tracker) do
-			contents:append(string.padright(mob_data.name, MAX_LENGTH)..' ${mobt'..mobid..'}s')
+
+		for i, mobid in ipairs(z_mob_tracker_order) do
+			contents:append(string.padright(z_mob_tracker[mobid].name, MAX_LENGTH)..' ${mobt'..mobid..'}s')
 		end
 	end
 	textbox:clear()
@@ -175,16 +203,16 @@ z_textbox_misc:register_event('reload', textbox_reinitialize_function)
 
 local SKILL_PADDING = 12
 local SKILL_WIDTH_TOTAL = (SKILL_PADDING + 8)*2 + 2
-local function textbox_skills_add_data(data, index, templine)
+local function textbox_skills_add_data(data, skillid, templine)
 	local add_to_data = false
 	if templine:len() > 0 then
 		add_to_data = true
 		templine = templine..'  '
 	end
-	if z_skill_tracker[index].is_capped then
-		templine = templine..z_skill_tracker[index].name.. ' \\cs(53,140,196)'..z_skill_tracker[index].cap..'/'..z_skill_tracker[index].cap..'\\cr'
+	if z_skill_tracker[skillid].is_capped then
+		templine = templine..z_skill_tracker[skillid].name.. ' \\cs(53,140,196)'..z_skill_tracker[skillid].cap..'/'..z_skill_tracker[skillid].cap..'\\cr'
 	else
-		templine = templine..z_skill_tracker[index].name.. ' ${cur'..index..'}/'..z_skill_tracker[index].cap
+		templine = templine..z_skill_tracker[skillid].name.. ' ${cur'..skillid..'}/'..z_skill_tracker[skillid].cap
 	end
 
 	if add_to_data then
@@ -210,8 +238,10 @@ textbox_skills_reinitialize_function = function(textbox, settings)
 	--contents:append(header)
 
 	local templine = ''
-	for i, skilltable in ipairs(z_skill_tracker) do
-		templine = textbox_skills_add_data(contents, i, templine)
+	for i, skillgroup in ipairs( { z_skill_tracker_weapon_order, z_skill_tracker_magic_order, z_skill_tracker_defense_order } ) do
+		for j, skillid in ipairs(skillgroup) do
+			templine = textbox_skills_add_data(contents, skillid, templine)
+		end
 	end
 	-- added two skills at a time. if there's an odd number, add the last one
 	if templine:len() > 0 then contents:append(templine) end
@@ -222,17 +252,16 @@ textbox_skills_reinitialize_function = function(textbox, settings)
 end
 z_textbox_skills:register_event('reload', textbox_skills_reinitialize_function)
 
+DELETE_last_error_message = 0
+
 windower.register_event('prerender', function()
 	local data = {}
 	if table.size(z_page_tracker) > 0 then
-		for mobname, trackdata in pairs(z_page_tracker) do
-			local colorprefix = ''
-			local colorpostfix = ''
-			if trackdata.progress == trackdata.needed then
-				colorprefix = '\\cs(128,128,128)'
-				colorpostfix = '\\cr'
+		for i, pagedata in ipairs(z_page_tracker) do
+			if pagedata.progress == pagedata.needed then
+				data['pagec'..i] = '\\cs(128,128,128)'
 			end
-			data['pagea'..mobname] = colorprefix..trackdata.progress
+			data['pagep'..i] = pagedata.progress
 		end
 	end
 
@@ -240,22 +269,39 @@ windower.register_event('prerender', function()
 		local curtime = os.time()
 		local removemobs = {}
 		data.mobkills = z_mob_tracker_kills
-		for mobid, mob_data in pairs(z_mob_tracker) do
+		for nmid, phtrackdata in pairs(z_phnm_spawn) do
+			data['phdead'..nmid] = phtrackdata.currently_dead
+		end
+		for i, mobid in ipairs(z_mob_tracker_order) do
+			local mob_data = z_mob_tracker[mobid]
 			local colorprefix = ''
-			local colorpostfix = ''
-			local remaining_time = z_mob_tracker[mobid].respawn - curtime
+			local colorsuffix = ''
+			local remaining_time = mob_data.respawn - curtime
 			if remaining_time < 10 then
-				colorprefix = '\\cs(255,200,200)'
-				colorpostfix = '\\cr'
+				colorprefix = '\\cs(255,64,64)'
+				colorsuffix = '\\cr'
 			end
 			if remaining_time > 0 then
-				data['mobt'..mobid] = colorprefix..remaining_time:string():lpad(' ', 3)..colorpostfix
+				data['mobt'..mobid] = colorprefix..remaining_time:string():lpad(' ', 3)..colorsuffix
+			elseif z_mob_tracker[mobid].phnm ~= nil then
+				local distance = windower.ffxi.get_mob_by_id(mobid).distance
+				distancestr = string.format('%2.1f', math.sqrt(distance))
+				data['mobt'..mobid] = '\\cs(128,255,128)alive\\cr '..distancestr
+				if z_mob_tracker[mobid].is_dead == true then
+					z_mob_tracker[mobid].is_dead = false
+					z_phnm_spawn[z_mob_tracker[mobid].phnm].currently_dead = z_phnm_spawn[z_mob_tracker[mobid].phnm].currently_dead - 1
+				end
 			else
 				table.insert(removemobs, mobid)
 			end
 		end
 		for i,mobid in ipairs(removemobs) do
-			z_mob_tracker[mobid] = nil
+			for j, mobjd in ipairs(z_mob_tracker_order) do
+				if mobid == mobjd then
+					table.remove(z_mob_tracker_order, j)
+					break
+				end
+			end
 		end
 		if table.getn(removemobs) > 0 then textbox_reinitialize_function(z_textbox_misc, settings) end
 	end
@@ -263,11 +309,20 @@ windower.register_event('prerender', function()
 
 	if table.size(z_skill_tracker) > 0 and settings.tracking_skills == 'on' then
 		local data = {}
-		for index, skilldata in ipairs(z_skill_tracker) do
-			if skilldata.is_capped then
-				data['cur'..index] = '\\cs(53,140,196)'..skilldata.current..'\\cr'
-			else
-				data['cur'..index] = skilldata.current
+
+		for i, skillgroup in ipairs( { z_skill_tracker_weapon_order, z_skill_tracker_magic_order, z_skill_tracker_defense_order } ) do
+			for j, skillid in ipairs(skillgroup) do
+				local skilldata = z_skill_tracker[skillid]
+				if skilldata == nil and DELETE_last_error_message < os.time() then
+					DELETE_last_error_message = os.time() + 10
+					windower.add_to_chat(17, ' -- AutoSkill: error with nil skilldata entry id='..skillid..' in table='..i..', element='..j)
+				end
+
+				if skilldata.is_capped then
+					data['cur'..skillid] = '\\cs(53,140,196)'..skilldata.current..'\\cr'
+				else
+					data['cur'..skillid] = skilldata.current
+				end
 			end
 		end
 		z_textbox_skills:update(data)
@@ -303,10 +358,10 @@ function resetAllStats()
 	recalculateAbilities()
 end
 
-function recalculateRangedDelay()
+function recalculateRangedDelay(gear)
 	z_ranged_delay = 0
 
-	local gear = windower.ffxi.get_items()['equipment']
+	if gear == nil then gear = windower.ffxi.get_items()['equipment'] end
 	-- windower.add_to_chat(100, 'Player Equipment dump is as follows:')
 	-- windower.add_to_chat(100, 'table type='..type(gear)..'   contents: '..table.tostring(gear))
 	z_ranged_skilltype = 0
@@ -328,63 +383,122 @@ function recalculateRangedDelay()
 			z_ranged_weapon = z_ammo_info
 			z_ranged_skilltype = candidate_skill
 		end
-		windower.add_to_chat(100, 'Player has ' ..z_ammo_count..' ammo of type '..z_ammo_type..' in bag='..z_ammo_bag)
+		windower.add_to_chat(100, 'Player has ' ..z_ammo_count..' ammo of type '..z_ammo_type..' in bag='..z_ammo_bag..' of rskilltype='..z_ranged_skilltype)
 	else
 		-- ammo slot is empty, default the ammo type to what's saved/preferred instead of equipped
 		z_ammo_type = settings.ammunition_id
 	end
 end
 
-function addSkillTrackWeapon(skillname)
-	local mainkey = SKILL_KEYS[skillname]
-	if z_player.skills[mainkey] == nil then return end
-
-	local skilldata = {}
-	skilldata = {}
-	skilldata.id = SKILL_IDS[skillname]
-	skilldata.name = skillname:rpad(' ', SKILL_PADDING)
-	skilldata.current = (z_player.skills[mainkey]):string():lpad(' ', 3)
-	skilldata.cap = getSkillCapFor(z_player.mjtla, z_player.effective_level, skillname):string():lpad(' ', 3)
-	skilldata.is_capped = (skilldata.current == skilldata.cap)
-	table.insert(z_skill_tracker, skilldata)
+function addSkillTrackCategory(skillid)
+	if skillid == nil or skillid == 0 then return end
+	local key = SKILL_KEYS[skillid]
+	if z_player.skills[key] == nil then return end
+	local skillname = SKILL_KEYS[key]
+	if z_skill_tracker[skillid] == nil then
+		z_skill_tracker[skillid] = {}
+		z_skill_tracker[skillid].id = skillid
+		z_skill_tracker[skillid].name = skillname:rpad(' ', SKILL_PADDING)
+	end
+	z_skill_tracker[skillid].current = (z_player.skills[key]):string():lpad(' ', 3)
+	z_skill_tracker[skillid].cap = getSkillCapFor(z_player.mjtla, z_player.effective_level, skillname):string():lpad(' ', 3)
+	z_skill_tracker[skillid].is_capped = (z_skill_tracker[skillid].current == z_skill_tracker[skillid].cap)
+	z_skill_tracker[skillid].tracking = true
 end
 
-function recalculateWeaponry()
-	windower.add_to_chat(100, 'Recalculating weaponry...')
-	z_skill_tracker = {}
-	windower.add_to_chat(17, ' -- assignment traceback: '..debug.traceback())
-
+function recalculateWeaponry(just_weapons)
 	local gear = windower.ffxi.get_items()['equipment']
-	--windower.add_to_chat(17, 'error finding thingy, player skill dump: '..table.tostring(z_player.skills))
-	if gear.main > 0 then -- check if main weapon exists, pull it's information
+
+	local weapons_before = table.getn(z_skill_tracker_weapon_order)
+	local mainwep_skillid = 0
+	local subwep_skillid = 0
+	-- check if main weapon exists, pull it's information
+	if gear.main > 0 then
 		local mainweapon_info = windower.ffxi.get_items(gear.main_bag, gear.main)
 		if mainweapon_info ~= nil then
-			local mainwepskillname = res.skills[res.items[mainweapon_info.id].skill].en
-			addSkillTrackWeapon(mainwepskillname)
-			if gear.sub > 0 then -- if main hand exists, maybe offhand? attempt to pull sub weapon information
+			mainwep_skillid = res.items[mainweapon_info.id].skill
+			-- if main hand exists, maybe offhand? attempt to pull sub weapon information
+			if gear.sub > 0 then 
 				local subweapon_info = windower.ffxi.get_items(gear.sub_bag, gear.sub)
-				local subwepskillname = res.skills[res.items[subweapon_info.id].skill].en
-				if mainwepskillname ~= subwepskillname then
-					addSkillTrackWeapon(subwepskillname)
+				if subweapon_info ~= nil then
+					subwep_skillid = res.items[subweapon_info.id].skill
 				end
 			end
 		else
 			windower.add_to_chat(17, 'Main hand contained index='..gear.main..' but weapon_info could not be found.')
 		end
 	elseif JOB_WEAPON_RATINGS[z_player.mjtla]['Hand-to-Hand'] ~= nil then -- no main weapon, h2h skill?
-		addSkillTrackWeapon('Hand-to-Hand')
+		mainwep_skillid = SKILL_IDS['Hand-to-Hand']
 	end
 
 	-- computer ranged weapon's ammunition and skill mode
-	recalculateRangedDelay()
-	if z_ranged_skilltype > 0 then
-		addSkillTrackWeapon(res.skills[z_ranged_skilltype].en)
+	recalculateRangedDelay(gear)
+
+	-- now clean it up and compare against what we have
+	if mainwep_skillid == subwep_skillid then subwep_skillid = 0 end
+	local weapons_after = 0
+	local ranged_index = 1
+	if mainwep_skillid > 0 then ranged_index = 2 end
+	if subwep_skillid > 0 then ranged_index = 3 end
+	local weapons_after = ranged_index
+	if z_ranged_skilltype == 0 then
+		weapons_after = weapons_after - 1
 	end
+
+	local any_changes = false
+	if weapons_after ~= weapons_before then
+		any_changes = true
+	else
+		if z_skill_tracker_weapon_order[1].id ~= mainwep_skillid then any_changes = true end
+		if subwep_skillid > 0 and z_skill_tracker_weapon_order[2].id ~= subwep_skillid then any_changes = true end
+		if z_ranged_skilltype > 0 and z_skill_tracker_weapon_order[ranged_index].id ~= z_ranged_skilltype then any_changes = true end
+	end
+
+	windower.add_to_chat(100, 'Recalculating weaponry...')
+	if any_changes then
+		windower.add_to_chat(17, ' -- AutoSkill: detected some changes.')
+
+		for i,skillid in ipairs(z_skill_tracker_weapon_order) do
+			z_skill_tracker[skillid].tracking = false
+		end
+		addSkillTrackCategory(mainwep_skillid)
+		addSkillTrackCategory(subwep_skillid)
+		addSkillTrackCategory(z_ranged_skilltype)
+		z_skill_tracker_weapon_order = {}
+		if mainwep_skillid > 0 then table.insert(z_skill_tracker_weapon_order, mainwep_skillid) end
+		if subwep_skillid > 0 then table.insert(z_skill_tracker_weapon_order, subwep_skillid) end
+		if z_ranged_skilltype > 0 then table.insert(z_skill_tracker_weapon_order, z_ranged_skilltype) end
+
+		if just_weapons then
+			textbox_skills_reinitialize_function(z_textbox_skills, settings)
+		end
+	else
+		windower.add_to_chat(17, ' -- AutoSkill: no changes were detected. The improvements saved a lot of string processing!')
+	end
+end
+
+function recalculateAllSkills()
+	-- do melee and ranged weapons
+	recalculateWeaponry(false)
+	-- any magical abilities this job may have
+	for i,skillid in ipairs(z_skill_tracker_magic_order) do
+		z_skill_tracker[skillid].tracking = false
+	end
+	z_skill_tracker_magic_order = {}
 	for magname, rating in npairs(JOB_MAGIC_RATINGS[z_player.mjtla]) do
-		addSkillTrackWeapon(magname)
+		local magid = SKILL_IDS[magname]
+		addSkillTrackCategory(magid)
+		table.insert(z_skill_tracker_magic_order, magid)
 	end
+	-- then defensive skills listed
+	for i,skillid in ipairs(z_skill_tracker_defense_order) do
+		z_skill_tracker[skillid].tracking = false
+	end
+	z_skill_tracker_defense_order = {}
 	for defname, rating in pairs(JOB_DEFENSIVE_RATINGS[z_player.mjtla]) do
-		addSkillTrackWeapon(defname)
+		local defid = SKILL_IDS[defname]
+		addSkillTrackCategory(defid)
+		table.insert(z_skill_tracker_defense_order, defid)
 	end
 	textbox_skills_reinitialize_function(z_textbox_skills, settings)
 end
@@ -414,7 +528,7 @@ function recalculateVitals()
 	for k,v in pairs(player.skills) do
 		z_player.skills[k] = v
 	end
-	recalculateWeaponry()
+	recalculateAllSkills()
 
 	z_weakest_cure = 9999
 	z_curing_abilities = {}
@@ -489,7 +603,7 @@ function recalculateAbilities()
 end
 
 local function playSoundEffect(sound_file)
-	if settings.plays_sounds then
+	if settings.play_sounds then
 		windower.play_sound(windower.addon_path..sound_file)
 	end
 end
@@ -561,7 +675,7 @@ end)
 windower.register_event('tp change', function (tp)
 	z_player.tp = tp
 	if tp == 0 then -- there's a chance we just changed weaponry
-		recalculateWeaponry()
+		recalculateWeaponry(true)
 	end
 end)
 
@@ -657,6 +771,8 @@ on_incomingtext_function = function (original, modified, orig_mode, mod_mode, bl
 		if original_length == 86 and original:sub(3,84) == "Changing your job will result in the cancellation of your current training regime." then
 			-- clear the book page (not, might be a color code in here?)
 			z_page_tracker = {}
+			settings.page_tracker = {}
+			settings:save()
 			textbox_reinitialize_function(z_textbox_misc, settings)
 		end
 	elseif orig_mode == 142 then
@@ -709,10 +825,12 @@ on_incomingtext_function = function (original, modified, orig_mode, mod_mode, bl
 						is_family = true
 						--windower.add_to_chat(17, ' -- AutoSkill: family detected -- '..table.size(z_candidate_mob_page_entries))
 					end
-					z_candidate_mob_page_entries[mobname] = {}
-					z_candidate_mob_page_entries[mobname].progress = amount
-					z_candidate_mob_page_entries[mobname].needed = max
-					z_candidate_mob_page_entries[mobname].is_family = is_family
+					local candidate = {}
+					candidate.name = mobname
+					candidate.progress = amount
+					candidate.needed = max
+					candidate.is_family = is_family
+					table.insert(z_candidate_mob_page_entries, candidate)
 				end
 				curpos = dotpos + 2
 				total_loops = total_loops + 1
@@ -725,14 +843,29 @@ on_incomingtext_function = function (original, modified, orig_mode, mod_mode, bl
 		end
 	end
 
-	if is_page_finalized and table.size(z_candidate_mob_page_entries) > 0 then
+	if is_page_finalized and table.getn(z_candidate_mob_page_entries) > 0 then
+		settings.page_tracker = {}
 		z_page_tracker = {}
-		for mobname, pagedata in pairs(z_candidate_mob_page_entries) do
-			z_page_tracker[mobname] = {}
-			z_page_tracker[mobname].progress = pagedata.progress
-			z_page_tracker[mobname].needed = pagedata.needed
-			z_page_tracker[mobname].is_family = pagedata.is_family
+		for i, pagedata in ipairs(z_candidate_mob_page_entries) do
+			z_page_tracker[i] = {}
+			z_page_tracker[i].name = string.padright(pagedata.name, MAX_LENGTH)
+			z_page_tracker[i].progress = pagedata.progress
+			z_page_tracker[i].needed = pagedata.needed
+			z_page_tracker[i].is_family = pagedata.is_family
+			local index = tostring(i)
+			settings.page_tracker[index] = {}
+			settings.page_tracker[index].name = pagedata.name
+			settings.page_tracker[index].progress = tonumber(pagedata.progress)
+			settings.page_tracker[index].needed = tonumber(pagedata.needed)
+			--if pagedata.is_family then
+			--	settings.page_tracker[index].is_family = 'true'
+			--else
+			--	settings.page_tracker[index].is_family = 'false'
+			--end
+			settings.page_tracker[index].is_family = pagedata.is_family
 		end
+		settings:save()
+
 		textbox_reinitialize_function(z_textbox_misc, settings)
 		z_candidate_mob_page_entries = {}
 	end
@@ -747,6 +880,231 @@ end
 windower.register_event('incoming text', on_incomingtext_function)
 
 local z_most_recent_kill_id = 0
+local z_most_recent_kill_time = 0
+-- The programmer that wrote this thinks that they're clever.
+-- Does anyone know if this is performant? Does anybody care?
+local z_message_to_function_map = {}
+
+-- Unable to see <target>.
+z_message_to_function_map[5] = function (actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
+	verboseActionMessage(actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
+end
+
+-- <actor> defeats <target>.
+z_message_to_function_map[6] = function (actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
+	z_most_recent_kill_id = target_id
+	local curtime = os.time()
+	z_most_recent_kill_time = curtime
+	if not z_track_mode then return end
+	z_mob_tracker_kills = z_mob_tracker_kills + 1
+
+	local respawn_time = 330 -- about 5 1/2 minutes by default
+	local curzone = res.zones[windower.ffxi.get_info().zone].search
+	local mob_data = windower.ffxi.get_mob_by_id(target_id)
+	--z_ph_info[target_id].last_death = os.time()
+	if z_mob_tracker[target_id] == nil then
+		z_mob_tracker[target_id] = {}
+		z_mob_tracker[target_id].name = mob_data.name
+	end
+	-- was target a placeholder?
+	if z_mobdata.phs[curzone][target_id] ~= nil then
+		local my_nm = z_mobdata.phs[curzone][target_id].related_nm
+		if curzone == 'Oztroja' then respawn_time = 5 end -- 792
+		if z_phnm_spawn[my_nm] == nil then
+			z_mob_tracker[target_id].phnm = my_nm
+			z_mob_tracker[target_id].is_dead = true
+			z_phnm_spawn[my_nm] = {}
+			z_phnm_spawn[my_nm].name = z_mobdata.nms[curzone][my_nm].name
+			z_phnm_spawn[my_nm].kills = 0
+			z_phnm_spawn[my_nm].probability = 1
+			z_phnm_spawn[my_nm].currently_dead = 0
+			z_phnm_spawn[my_nm].total = 0
+			for phid,phdata in pairs(z_mobdata.phs[curzone]) do
+				if my_nm == phdata.related_nm then
+					z_phnm_spawn[my_nm].total = z_phnm_spawn[my_nm].total + 1
+				end
+			end
+		end
+		z_phnm_spawn[my_nm].kills = z_phnm_spawn[my_nm].kills + 1
+		z_phnm_spawn[my_nm].currently_dead = z_phnm_spawn[my_nm].currently_dead + 1
+		z_phnm_spawn[my_nm].probability = z_phnm_spawn[my_nm].probability * 0.95
+	end
+	-- was target an NM?
+	if z_mobdata.nms[curzone][target_id] ~= nil then
+		if z_phnm_spawn[target_id] ~= nil then
+			z_phnm_spawn[target_id].probability = 1
+		end
+		respawn_time = z_mobdata.nms[curzone][target_id].respawn_minimum
+	end
+	z_mob_tracker[target_id].respawn = os.time() + respawn_time
+	local insert_at = 0
+	local old_index = 0
+	for i,mobid in ipairs(z_mob_tracker_order) do
+		if mobid == target_id then old_index = i end
+		if z_mob_tracker[mobid].respawn > z_mob_tracker[target_id].respawn then
+			insert_at = i
+			break
+		end
+	end
+	-- oldindex == 0 and insertat == 0 (wasn't found, add at end)
+	-- oldindex == 5 and insertat == 0 (was at pos 5, add at end)
+	-- oldindex == 0 and insertat == 5 (wasn't found, insert in middle at pos 5)
+	-- oldindex == 3 and insertat == 5 (was found, insert in middle at pos 5)
+	-- oldindex == 5 and insertat == 3 (does this make sense?)
+	-- oldindex == 5 and insertat == 5 (does this make sense?)
+	if insert_at == 0 then
+		if old_index > 0 then
+			table.remove(z_mob_tracker_order, old_index)
+		end
+		table.insert(z_mob_tracker_order, target_id)
+	else
+		if old_index < insert_at then
+			if old_index == 0 then
+				table.insert(z_mob_tracker_order, insert_at, target_id)
+			else
+				table.remove(z_mob_tracker_order, old_index)
+				table.insert(z_mob_tracker_order, insert_at-1, target_id)
+			end
+		end
+	end
+
+	textbox_reinitialize_function(z_textbox_misc, settings)
+	verboseActionMessage(actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
+end
+
+--	<target>'s <skill> skill rises 0.<number> points.
+z_message_to_function_map[38] = function (actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
+	if not z_skill_tracker[param_1].tracking then
+		-- got a skill up on a weapon we weren't tracking, must have changed gear
+		recalculateWeaponry(true)
+	end
+end
+
+-- <target>'s <skill> skill reaches level <number>.
+z_message_to_function_map[53] = function (actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
+	if not z_skill_tracker[param_1].tracking then
+		-- got a skill up on a weapon we weren't tracking, must have changed gear
+		recalculateWeaponry(true)
+	else -- update the skill's current value
+		z_player.skills[param_1] = param_2
+		z_skill_tracker[param_1].current = param_2:string():lpad(' ', 3)
+		if z_skill_tracker[param_1].current == z_skill_tracker[param_1].cap then
+			z_skill_tracker[param_1].is_capped = true
+		end
+	end
+end
+
+-- <actor> uses <weapon_skill>.
+z_message_to_function_map[101] = function (actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
+	if actor_id == z_player_id then
+		LAST_ACTION_TICK = os.time() + 2
+	end
+end
+
+-- You do not have an appropriate ranged weapon equipped.
+z_message_to_function_map[216] = function (actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
+	if z_operational_mode['ranged'] then
+		tryEquipMoreAmmo()
+	end
+end
+
+-- TODO: this code goes away once NM tracking/scraping from DSP is complete
+-- /check gave "is impossible to guage!"
+z_message_to_function_map[249] = function (actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
+--	windower.add_to_chat(17, 'actor='..actor_id..' target='..target_id..'  target_index='..target_index..' messageid='..message_id..' param1='..param_1..' param2='..param_2..' param3='..param_3)
+	local zoneidstr = tostring(windower.ffxi.get_info().zone)
+	if settings.mob_ids.nms[zoneidstr] == nil then settings.mob_ids.nms[zoneidstr] = {} end
+	local mob_data = windower.ffxi.get_mob_by_id(target_id)
+	if mob_data == nil then return end
+	local mobidstr = tostring(target_id)
+	if settings.mob_ids.nms[zoneidstr][mobidstr] ~= nil then return end
+	settings.mob_ids.nms[zoneidstr][mobidstr] = mob_data.name
+	settings:save()
+	windower.add_to_chat(100, 'NM added and saved to persistent settings.')
+end
+
+-- <ability> can only be performed during battle.
+z_message_to_function_map[525] = function (actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
+	verboseActionMessage(actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
+	playSoundEffect(settings.sound_files.alert)
+end
+
+-- Level Sync activated. Your level has been restricted to <number>. Equipment affected by the level restriction will be adjusted accordingly. Experience points will become unavailable for all party members should the Level Sync designee stray too far from the enemy.
+z_message_to_function_map[540] = function (actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
+	verboseActionMessage(actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
+	z_player.level_sync = param_2
+	coroutine.schedule(recalculateVitals, 8)
+end
+
+-- You defeated a designated target. (Progress: <number>/<number>)
+z_message_to_function_map[558] = function (actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
+	if z_most_recent_kill_id ~= 0 then
+		local mob_data = windower.ffxi.get_mob_by_id(z_most_recent_kill_id)
+		local latest_kill_index = 0
+		for i,pagedata in ipairs(z_page_tracker) do
+			if pagedata.name:len() > mob_data.name:len() and pagedata.name:sub(1, mob_data.name:len()) == mob_data.name then
+				-- something like Werebat instead of Werebats, this was close enough
+				latest_kill_index = i
+				break
+			end
+			if pagedata.is_family and pagedata.needed == param_2 and pagedata.progress + 1 == param_1 then
+				-- here, we're guessing. we found a mob family, a kill progress message that matched
+				-- but we have no clue if they really are the same entry.
+				-- We'll keep looking, just in case. If we find an exact match after this, we'll quit and use that instead.
+				latest_kill_index = i
+			end
+		end
+		if latest_kill_index == 0 then -- still couldn't find it, start a new entry
+			local page_entry = {}
+			page_entry.name = mob_data.name
+			page_entry.progress = param_1
+			page_entry.needed = param_2
+			page_entry.is_family = false
+			table.insert(z_page_tracker, page_entry)
+			textbox_reinitialize_function(z_textbox_misc, settings)
+		else
+			z_page_tracker[latest_kill_index].progress = param_1
+		end
+		settings:save()
+		z_most_recent_kill_id = 0
+		return
+	end
+	
+	-- We missed the kill message. Are we able to guess?
+	windower.add_to_chat(100, ' -- AutoSkill error: page completion message with no kill message?')
+	local candidate_index = ''
+	local possible = 0
+	for i,pagedata in pairs(z_page_tracker) do
+		if pagedata.needed == param_2 and pagedata.progress + 1 == param_1 then
+			candidate_index = i
+			possible = possible + 1
+		end
+	end
+	if possible == 1 then
+		z_page_tracker[candidate].progress = param_1
+	end
+	verboseActionMessage(actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
+end
+
+-- You have successfully completed the training regime.
+z_message_to_function_map[559] = function (actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
+	verboseActionMessage(actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
+	local remove_mobs = {}
+	for pagename, trackinfo in pairs(z_page_tracker) do
+		if trackinfo.progress == trackinfo.needed then
+			trackinfo.progress = 0
+		else
+			table.insert(remove_mobs, pagename)
+		end
+	end
+	for i,pagename in ipairs(remove_mobs) do z_page_tracker[pagename] = nil end
+	if settings.play_sounds then
+		local files = {}
+		for key,name in pairs(settings.sound_files.book_complete) do table.insert(files, name) end
+		playSoundEffect(files[math.random(table.getn(files))])
+	end
+end
+
 windower.register_event('action message', function(actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
 	if z_super_verbose then
 		windower.add_to_chat(17, 'messsage in verbose mode:')
@@ -754,157 +1112,8 @@ windower.register_event('action message', function(actor_id, target_id, actor_in
 		return
 	end
 
-	if message_id == 5 then -- Unable to see <target>.
-		verboseActionMessage(actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
-	elseif message_id == 6 then -- <actor> defeats <target>.
-		z_most_recent_kill_id = target_id
-		if z_track_mode then
-			local respawn_time = 330 -- about 5 1/2 minutes by default
-			local curzone = res.zones[windower.ffxi.get_info().zone].search
-			local mob_data = windower.ffxi.get_mob_by_id(target_id)
-			--z_ph_info[target_id].last_death = os.time()
-			z_mob_tracker[target_id] = {}
-			z_mob_tracker[target_id].name = mob_data.name
-			local my_nm = z_mobdata.phs[curzone][target_id]
-			if my_nm ~= nil then -- target was a placeholder
-				if curzone == 'Oztroja' then respawn_time = 792 end
-				if z_phnm_spawn[my_nm] == nil then
-					z_phnm_spawn[my_nm].kills = 0
-					z_phnm_spawn[my_nm].probability = 1
-					z_phnm_spawn[my_nm].total = 0
-					for phid,nmid in z_mobdata.phs[curzone] do
-						if my_nm == v then
-							z_phnm_spawn[target_id].total = z_phnm_spawn[target_id].total + 1
-						end
-					end
-
-					if z_mobdata.phs[curzone][target_id] ~= nil then 
-					z_phnm_spawn[target_id].total = 5
-				end
-				z_phnm_spawn_probability = z_phnm_spawn_probability * 0.95
-			end
-			if z_mobdata.nms[curzone][target_id] ~= nil then -- target was an NM
-				if z_phnm_spawn[target_id] ~= nil then
-					z_phnm_spawn[target_id].probability = 1
-				end
-				respawn_time = z_mobdata.nms[curzone][target_id].respawn_minimum
-			end
-			z_mob_tracker[target_id].respawn = os.time() + respawn_time
-			z_mob_tracker_kills = z_mob_tracker_kills + 1
-			textbox_reinitialize_function(z_textbox_misc, settings)
-		end
-		verboseActionMessage(actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
-	elseif message_id == 38 then --	<target>'s <skill> skill rises 0.<number> points.
-		local index = 0
-		for i,skilldata in pairs(z_skill_tracker) do
-			if skilldata.id == param_1 then
-				index = i
-				break
-			end
-		end
-		if index == 0 then -- got a skill up on a weapon we weren't tracking, must have changed gear
-			recalculateWeaponry()
-		end
-	elseif message_id == 53 then -- <target>'s <skill> skill reaches level <number>.
-		local index = 0
-		for i,skilldata in pairs(z_skill_tracker) do
-			if skilldata.id == param_1 then
-				index = i
-				break
-			end
-		end
-		if index == 0 then -- must have changed weapons?
-			windower.add_to_chat(100, 'Warning! Could not find skill in tracker, yet gained a skill up...')
-			recalculateWeaponry()
-		else -- update the skill's current value
-			 z_skill_tracker[index].current = param_2:string():lpad(' ', 3)
-			 if z_skill_tracker[index].current == z_skill_tracker[index].capped then
-				z_skill_tracker[index].is_capped = true
-			end
-		end
-	elseif message_id == 101 then -- <actor> uses <weapon_skill>.
-		if actor_id == z_player_id then
-			LAST_ACTION_TICK = os.time() + 2
-		end
-	elseif message_id == 216 then -- You do not have an appropriate ranged weapon equipped.
-		if z_operational_mode['ranged'] then
-			tryEquipMoreAmmo()
-		end
-	elseif message_id == 249 then -- /check gave "is impossible to guage!"
-	--	windower.add_to_chat(17, 'actor='..actor_id..' target='..target_id..'  target_index='..target_index..' messageid='..message_id..' param1='..param_1..' param2='..param_2..' param3='..param_3)
-		local zoneidstr = tostring(windower.ffxi.get_info().zone)
-		if settings.mob_ids.nms[zoneidstr] == nil then settings.mob_ids.nms[zoneidstr] = {} end
-		local mob_data = windower.ffxi.get_mob_by_id(target_id)
-		if mob_data == nil then return end
-		local mobidstr = tostring(target_id)
-		if settings.mob_ids.nms[zoneidstr][mobidstr] ~= nil then return end
-		settings.mob_ids.nms[zoneidstr][mobidstr] = mob_data.name
-		settings:save()
-		windower.add_to_chat(100, 'NM added and saved to persistent settings.')
-	elseif message_id == 525 then -- <ability> can only be performed during battle.
-		verboseActionMessage(actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
-		playSoundEffect(settings.sound_files.alert)
-	elseif message_id == 540 then -- Level Sync activated. Your level has been restricted to <number>. Equipment affected by the level restriction will be adjusted accordingly. Experience points will become unavailable for all party members should the Level Sync designee stray too far from the enemy.
-		verboseActionMessage(actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
-		z_player.level_sync = param_2
-		coroutine.schedule(recalculateVitals, 8)
-	elseif message_id == 558 then -- You defeated a designated target. (Progress: <number>/<number>)
-		if z_most_recent_kill_id ~= 0 then
-			local mob_data = windower.ffxi.get_mob_by_id(z_most_recent_kill_id)
-			local entry_name = mob_data.name
-			if z_page_tracker[mob_data.name] == nil then
-				for pagename,pagedata in pairs(z_page_tracker) do
-					if pagename:len() > entry_name:len() and pagename:sub(1,entry_name:len()) == entry_name then
-						-- something like Werebat instead of Werebats, this was close enough
-						entry_name = pagename
-						break
-					end
-					if pagedata.is_family and pagedata.needed == param_2 and pagedata.progress + 1 == param_1 then
-						-- here, we're guessing. we found a mob family, a kill progress message that matched
-						-- but we have no clue if they really are the same entry.
-						-- We'll keep looking, just in case. If we find an exact match after this, we'll quit and use that instead.
-						entry_name = pagename
-					end
-				end
-				if z_page_tracker[entry_name] == nil then -- still couldn't find it, start a new entry
-					z_page_tracker[entry_name] = {}
-					z_page_tracker[entry_name].needed = param_2
-				end
-				textbox_reinitialize_function(z_textbox_misc, settings)
-			end
-			z_page_tracker[entry_name].progress = param_1
-			z_most_recent_kill_id = 0
-		else -- We missed the kill message. Are we able to guess?
-			windower.add_to_chat(100, ' -- AutoSkill error: page completion message with no kill message?')
-			local candidate = ''
-			local possible = 0
-			for pagename,pagedata in pairs(z_page_tracker) do
-				if pagedata.needed == param_2 and pagedata.progress + 1 == param_1 then
-					candidate = pagename
-					possible = possible + 1
-				end
-			end
-			if possible == 1 then
-				z_page_tracker[candidate].progress = param_1
-			end
-		end
-		verboseActionMessage(actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
-	elseif message_id == 559 then -- You have successfully completed the training regime.
-		verboseActionMessage(actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
-		local remove_mobs = {}
-		for pagename, trackinfo in pairs(z_page_tracker) do
-			if trackinfo.progress == trackinfo.needed then
-				trackinfo.progress = 0
-			else
-				table.insert(remove_mobs, pagename)
-			end
-		end
-		for i,pagename in ipairs(remove_mobs) do z_page_tracker[pagename] = nil end
-		if settings.plays_sounds then
-			local files = {}
-			for key,name in pairs(settings.sound_files.book_complete) do table.insert(files, name) end
-			playSoundEffect(files[math.random(table.getn(files))])
-		end
+	if z_message_to_function_map[message_id] ~= nil then
+		z_message_to_function_map[message_id](actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
 	else
 		--verboseActionMessage(actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
 	end
@@ -1255,7 +1464,7 @@ windower.register_event('addon command',function (...)
 	
 	if param[1] == 'melee' or param[1] == 'ranged' or param[1] == 'both' then
 		if param[1] == 'ranged' or param[1] == 'both' then
-			recalculateRangedDelay()
+			recalculateRangedDelay(nil)
 			if z_ranged_weapon == nil then
 				param[1] = 'melee'
 				windower.add_to_chat(17, 'Warning: No ranged weapon equipped. Starting in melee mode instead.')

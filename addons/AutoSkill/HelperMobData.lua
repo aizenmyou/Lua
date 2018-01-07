@@ -39,6 +39,7 @@
 z_mobdata.nms['WRonfaure'] = {} 
 --Jaggedy-Eared Jack
 z_mobdata.nms['WRonfaure'][17187111] = {}
+z_mobdata.nms['WRonfaure'][17187111].name = 'Jaggedy-Eared Jack'
 z_mobdata.nms['WRonfaure'][17187111].respawn_minimum = 3600
 z_mobdata.nms['WRonfaure'][17187111].ph_probability = 0.05
 z_mobdata.phs['WRonfaure'][17187042] = { ['related_nm'] = 17187111 }
@@ -50,14 +51,16 @@ z_mobdata.phs['WRonfaure'][17187152] = { ['related_nm'] = 17187111 }
 z_mobdata.phs['WRonfaure'][17187154] = { ['related_nm'] = 17187111 }
 -- Fungus Beetle
 z_mobdata.nms['WRonfaure'][17187047] = {}
+z_mobdata.nms['WRonfaure'][17187047].name = 'Fungus Beetle'
 z_mobdata.nms['WRonfaure'][17187047].respawn_minimum = 3600
-z_mobdata.nms['WRonfaure'][17187111].ph_probability = 0.15
+z_mobdata.nms['WRonfaure'][17187047].ph_probability = 0.15
 z_mobdata.phs['WRonfaure'][17187046] = { ['related_nm'] = 17187047 }
 z_mobdata.phs['WRonfaure'][17187114] = { ['related_nm'] = 17187047 }
 z_mobdata.phs['WRonfaure'][17187115] = { ['related_nm'] = 17187047 }
 -- ====== Castle Oztroja ======
 -- Mee Deggi the Punisher
 z_mobdata.nms['Oztroja'][17395800] = {}
+z_mobdata.nms['Oztroja'][17395800].name = 'Mee Deggi the Punisher'
 z_mobdata.nms['Oztroja'][17395800].respawn_minimum =  3600
 z_mobdata.nms['Oztroja'][17395800].respawn_maximum = 10800
 z_mobdata.phs['Oztroja'][17395798] = { ['related_nm'] = 17395800 }
@@ -70,9 +73,11 @@ z_mobdata.phs['Oztroja'][17395761] = { ['related_nm'] = 17395800 }
 z_mobdata.phs['Oztroja'][17395775] = { ['related_nm'] = 17395800 }
 -- Saa Doyi the Fervid
 z_mobdata.nms['Oztroja'][17395731] = {}
+z_mobdata.nms['Oztroja'][17395731].name = 'Saa Doyi the Fervid' 
 z_mobdata.nms['Oztroja'][17395731].respawn_minimum = 3600 
 -- Quu Domi the Gallant
 z_mobdata.nms['Oztroja'][17395870] = {}
+z_mobdata.nms['Oztroja'][17395870].name = 'Quu Domi the Gallant'
 z_mobdata.nms['Oztroja'][17395870].respawn_minimum =  3600
 z_mobdata.nms['Oztroja'][17395870].respawn_maximum = 10800
 z_mobdata.phs['Oztroja'][17395844] = { ['related_nm'] = 17395870 }
@@ -85,15 +90,19 @@ z_mobdata.phs['Oztroja'][17395829] = { ['related_nm'] = 17395870 }
 -- ====== South Gustaberg ======	 { ['related_nm'] = 
 -- Leaping Lizzy -- in this case there are two placeholders and two Leaping Lizzy definitions?
 z_mobdata.nms['SGustaberg'][17215868] = {}
+z_mobdata.nms['SGustaberg'][17215868].name = 'Leaping Lizzy'
 z_mobdata.nms['SGustaberg'][17215868].respawn_minimum = 3600
 z_mobdata.nms['SGustaberg'][17215888] = {}
+z_mobdata.nms['SGustaberg'][17215888].name = 'Leaping Lizzy'
 z_mobdata.nms['SGustaberg'][17215888].respawn_maximum = 3600
 z_mobdata.phs['SGustaberg'][17215867] = { ['related_nm'] = 17215868 }
 z_mobdata.phs['SGustaberg'][17215887] = { ['related_nm'] = 17215888 }
 -- ====== Maze of Shakhrami ======
 -- Argus
 z_mobdata.nms['Shakhrami'][17588674] = {}
+z_mobdata.nms['Shakhrami'][17588674].name = 'Argus'
 z_mobdata.nms['Shakhrami'][17588674].respawn_minimum = 14400
 -- Leech King
 z_mobdata.nms['Shakhrami'][17588675] = {}
+z_mobdata.nms['Shakhrami'][17588675].name = 'Leech King'
 z_mobdata.nms['Shakhrami'][17588675].respawn_maximum = 14400
