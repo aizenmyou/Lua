@@ -1,5 +1,5 @@
 function npairs(tbl)
-	if table == nil then return pairs({}) end
+	if tbl == nil then return pairs({}) end
 	return pairs(tbl)
 end
 

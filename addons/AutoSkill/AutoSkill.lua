@@ -54,6 +54,7 @@ require('HelperTracker')
 local z_page_tracker = {}
 local z_mob_tracker = {}
 local z_mob_tracker_order = {}
+local z_mobph_tracker_order = {}
 local z_mob_tracker_kills = 0
 local z_phnm_spawn = {}
 local z_skill_tracker = {}
@@ -125,7 +126,7 @@ default_settings.skilldisplay.text.stroke.blue  = 48
 default_settings.skilldisplay.text.stroke.alpha = 255
 default_settings.nms = {}
 default_settings.nms['Leaping_Lizzy'] = {}
-default_settings.nms['Leaping_Lizzy'].time_last_kill = 0
+default_settings.nms['Leaping_Lizzy'].earliest_pop_time = 0
 default_settings.nms['Leaping_Lizzy'].ph_kills = 0
 
 settings = config.load(default_settings)
@@ -185,10 +186,15 @@ textbox_reinitialize_function = function(textbox, settings)
 			contents:append('PH for '..phtrackdata.name..' kills='..phtrackdata.kills)
 			contents:append('  geo.distrib: '..string.format('%02.02f', (1-phtrackdata.probability)*100)..'%')
 			contents:append('  dead/total: ${phdead'..nmid..'}/'..phtrackdata.total)
+			-- TODO: change to z_mobph_tracker_order[nmid]
+			for i, mobid in ipairs(z_mob_tracker_order) do
+				contents:append(string.padright(z_mob_tracker[mobid].name, MAX_LENGTH)..' ${mobt'..mobid..'}')
+			end
 		end
 
+		if table.size(z_phnm_spawn) > 0 then contents:append('--- Regular Mobs') end
 		for i, mobid in ipairs(z_mob_tracker_order) do
-			contents:append(string.padright(z_mob_tracker[mobid].name, MAX_LENGTH)..' ${mobt'..mobid..'}s')
+			contents:append(string.padright(z_mob_tracker[mobid].name, MAX_LENGTH)..' ${mobt'..mobid..'}')
 		end
 	end
 	textbox:clear()
@@ -282,11 +288,12 @@ windower.register_event('prerender', function()
 				colorsuffix = '\\cr'
 			end
 			if remaining_time > 0 then
-				data['mobt'..mobid] = colorprefix..remaining_time:string():lpad(' ', 3)..colorsuffix
-			elseif z_mob_tracker[mobid].phnm ~= nil then
+				data['mobt'..mobid] = colorprefix..remaining_time:string():lpad(' ', 3)..'s'..colorsuffix
+			elseif z_mob_tracker[mobid].phnm ~= nil and z_phnm_spawn[z_mob_tracker[mobid].phnm].earliest_pop_time < curtime then
 				local distance = windower.ffxi.get_mob_by_id(mobid).distance
 				distancestr = string.format('%2.1f', math.sqrt(distance))
 				data['mobt'..mobid] = '\\cs(128,255,128)alive\\cr '..distancestr
+				-- TODO: smart logic here? actually examine that get_mob_by_id data you dumby
 				if z_mob_tracker[mobid].is_dead == true then
 					z_mob_tracker[mobid].is_dead = false
 					z_phnm_spawn[z_mob_tracker[mobid].phnm].currently_dead = z_phnm_spawn[z_mob_tracker[mobid].phnm].currently_dead - 1
@@ -296,6 +303,7 @@ windower.register_event('prerender', function()
 			end
 		end
 		for i,mobid in ipairs(removemobs) do
+			windower.add_to_chat(100, 'Attempting to remove mobid='..mobid)
 			for j, mobjd in ipairs(z_mob_tracker_order) do
 				if mobid == mobjd then
 					table.remove(z_mob_tracker_order, j)
@@ -909,10 +917,11 @@ z_message_to_function_map[6] = function (actor_id, target_id, actor_index, targe
 	-- was target a placeholder?
 	if z_mobdata.phs[curzone][target_id] ~= nil then
 		local my_nm = z_mobdata.phs[curzone][target_id].related_nm
-		if curzone == 'Oztroja' then respawn_time = 5 end -- 792
+		z_mob_tracker[target_id].phnm = my_nm
+		z_mob_tracker[target_id].is_dead = true
+		-- TODO: scrape respawn times from SQL
+		if curzone == 'Oztroja' then respawn_time = 10 end -- 792
 		if z_phnm_spawn[my_nm] == nil then
-			z_mob_tracker[target_id].phnm = my_nm
-			z_mob_tracker[target_id].is_dead = true
 			z_phnm_spawn[my_nm] = {}
 			z_phnm_spawn[my_nm].name = z_mobdata.nms[curzone][my_nm].name
 			z_phnm_spawn[my_nm].kills = 0
@@ -924,6 +933,11 @@ z_message_to_function_map[6] = function (actor_id, target_id, actor_index, targe
 					z_phnm_spawn[my_nm].total = z_phnm_spawn[my_nm].total + 1
 				end
 			end
+			if settings.nms[z_phnm_spawn[my_nm].name] ~= nil then
+				z_phnm_spawn[my_nm].earliest_pop_time = settings.nms[z_phnm_spawn[my_nm].name].earliest_pop_time
+			else
+				z_phnm_spawn[my_nm].earliest_pop_time = 0
+			end
 		end
 		z_phnm_spawn[my_nm].kills = z_phnm_spawn[my_nm].kills + 1
 		z_phnm_spawn[my_nm].currently_dead = z_phnm_spawn[my_nm].currently_dead + 1
@@ -931,10 +945,34 @@ z_message_to_function_map[6] = function (actor_id, target_id, actor_index, targe
 	end
 	-- was target an NM?
 	if z_mobdata.nms[curzone][target_id] ~= nil then
+		respawn_time = z_mobdata.nms[curzone][target_id].respawn_minimum
 		if z_phnm_spawn[target_id] ~= nil then
 			z_phnm_spawn[target_id].probability = 1
+			z_phnm_spawn[target_id].earliest_pop_time = curtime + respawn_time
+			local nmname = z_phnm_spawn[target_id].name
+			if settings.nms[nmname] == nil then
+				settings.nms[nmname] = {}
+			end
+			settings.nms[nmname].earliest_pop_time = curtime + respawn_time
+			settings.nms[nmname].ph_kills = 0
+			settings:save()
+			-- stop tracking the placeholders
+			local removemobs = {}
+			for i, mobid in ipairs(z_mob_tracker_order) do
+				if z_mob_tracker[mobid].phnm == target_id then
+					table.insert(removemobs, mobid)
+				end
+			end
+			for i,mobid in ipairs(removemobs) do
+				windower.add_to_chat(100, 'Attempting to remove mobid='..mobid)
+				for j, mobjd in ipairs(z_mob_tracker_order) do
+					if mobid == mobjd then
+						table.remove(z_mob_tracker_order, j)
+						break
+					end
+				end
+			end
 		end
-		respawn_time = z_mobdata.nms[curzone][target_id].respawn_minimum
 	end
 	z_mob_tracker[target_id].respawn = os.time() + respawn_time
 	local insert_at = 0
