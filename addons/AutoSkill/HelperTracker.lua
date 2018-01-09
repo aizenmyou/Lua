@@ -88,16 +88,18 @@ function periodicNMScan()
 		return
 	end
 
-	local zoneidstr = tostring(windower.ffxi.get_info().zone)
-	if table.isempty(settings.mob_ids.nms[zoneidstr]) then return end
+	local curzone = res.zones[windower.ffxi.get_info().zone].search
+	local zone_nms = z_mobdata.nms[curzone]
 	local found_something = false
-	for k,v in pairs(settings.mob_ids.nms[zoneidstr]) do
-		local mob_data = windower.ffxi.get_mob_by_id(tonumber(k))
+	for nm_id,nmdata in npairs(zone_nms) do
+		local mob_data = windower.ffxi.get_mob_by_id(nm_id)
 		if mob_data ~= nil and mob_data.valid_target then
 			found_something = true
 			windower.add_to_chat(17, 'Found NM: '..mob_data.name..' distance='..math.sqrt(mob_data.distance))
 		end
+		
 	end
+
 	if found_something then playSoundEffect(settings.sound_files.alert) end
 
 	z_next_scheduled_scan = curtime + settings.nm_scan_repeat

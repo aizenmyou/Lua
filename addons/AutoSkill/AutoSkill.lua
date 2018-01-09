@@ -1,3 +1,5 @@
+-- TODO: wait for body to fade before marking as dead --- currently just tacking on MOB_TRACKER_FADE_TIME
+
 --TODO: page tracking needs completion and testing
 --TODO: fancy ordered insertion based on different respawn times
 --TODO: change buffs, cure spells, and ability lists to use res.spells etc
@@ -33,10 +35,12 @@ _addon.name = 'AutoSkill'
 _addon.version = '0.1'
 _addon.author = 'freeZerg'
 _addon.commands = {'autoskill','ask'}
+
+require('HelperMikeLuaLib')
+
 res = require('resources')
 config = require('config')
 local texts = require('texts')
-require('HelperMikeLuaLib')
 require('HelperSkillCapData')
 require('HelperSkillCapFunctions')
 
@@ -54,8 +58,8 @@ require('HelperTracker')
 local z_page_tracker = {}
 local z_mob_tracker = {}
 local z_mob_tracker_order = {}
-local z_mobph_tracker_order = {}
 local z_mob_tracker_kills = 0
+local MOB_TRACKER_FADE_TIME = 18
 local z_phnm_spawn = {}
 local z_skill_tracker = {}
 local z_skill_tracker_weapon_order = {}
@@ -126,7 +130,7 @@ default_settings.skilldisplay.text.stroke.blue  = 48
 default_settings.skilldisplay.text.stroke.alpha = 255
 default_settings.nms = {}
 default_settings.nms['Leaping_Lizzy'] = {}
-default_settings.nms['Leaping_Lizzy'].earliest_pop_time = 0
+default_settings.nms['Leaping_Lizzy'].time_last_kill = 0
 default_settings.nms['Leaping_Lizzy'].ph_kills = 0
 
 settings = config.load(default_settings)
@@ -138,6 +142,10 @@ config.register(settings, function ()
 	if settings.play_sounds ~= 'on' then settings.play_sounds = 'off' end
 	if settings.tracking_skills ~= 'on' then 
 		settings.tracking_skills = 'off'
+		z_textbox_skills:clear()
+		z_textbox_skills:hide()
+	else
+		z_textbox_skills:show()
 	end
 	z_default_color = '\\cs('..settings.display.text.red..','
 	z_default_color = z_default_color..settings.display.text.green..','
@@ -182,19 +190,32 @@ textbox_reinitialize_function = function(textbox, settings)
 		if elements > 0 then contents:append('') end
 		elements = elements + 1
 		contents:append('Total : '..z_mob_tracker_kills)
+		local phnmcount = 0
 		for nmid, phtrackdata in pairs(z_phnm_spawn) do
-			contents:append('PH for '..phtrackdata.name..' kills='..phtrackdata.kills)
+			contents:append('PH for '..phtrackdata.name..' kills='..phtrackdata.ph_kills)
 			contents:append('  geo.distrib: '..string.format('%02.02f', (1-phtrackdata.probability)*100)..'%')
-			contents:append('  dead/total: ${phdead'..nmid..'}/'..phtrackdata.total)
-			-- TODO: change to z_mobph_tracker_order[nmid]
+			contents:append('  dead/total: ${phdead'..nmid..'}/'..phtrackdata.total_phs)
+			if z_mob_tracker[nmid] ~= nil then
+				contents:append(string.padright(z_mob_tracker[nmid].name, MAX_LENGTH)..' ${mobt'..nmid..'}')
+			end
 			for i, mobid in ipairs(z_mob_tracker_order) do
-				contents:append(string.padright(z_mob_tracker[mobid].name, MAX_LENGTH)..' ${mobt'..mobid..'}')
+				if z_mob_tracker[mobid].phnm == nmid then
+					contents:append(string.padright(z_mob_tracker[mobid].name, MAX_LENGTH)..' ${mobt'..mobid..'}')
+					phnmcount = phnmcount + 1
+				end
 			end
 		end
 
-		if table.size(z_phnm_spawn) > 0 then contents:append('--- Regular Mobs') end
-		for i, mobid in ipairs(z_mob_tracker_order) do
-			contents:append(string.padright(z_mob_tracker[mobid].name, MAX_LENGTH)..' ${mobt'..mobid..'}')
+		if phnmcount < table.getn(z_mob_tracker_order) then 
+			if table.size(z_phnm_spawn) > 0 then
+				contents:append('')
+				contents:append('--- Regular Mobs')
+			end
+			for i, mobid in ipairs(z_mob_tracker_order) do
+				if z_mob_tracker[mobid].phnm == 0 and z_mob_tracker[mobid].is_nm == false then
+					contents:append(string.padright(z_mob_tracker[mobid].name, MAX_LENGTH)..' ${mobt'..mobid..'}')
+				end
+			end
 		end
 	end
 	textbox:clear()
@@ -205,7 +226,6 @@ textbox_reinitialize_function = function(textbox, settings)
 		textbox:hide()
 	end
 end
-z_textbox_misc:register_event('reload', textbox_reinitialize_function)
 
 local SKILL_PADDING = 12
 local SKILL_WIDTH_TOTAL = (SKILL_PADDING + 8)*2 + 2
@@ -230,14 +250,14 @@ end
 
 textbox_skills_reinitialize_function = function(textbox, settings)
 	--windower.add_to_chat(17, 'Skill text box='..settings.tracking_skills..' and size='..table.size(z_skill_tracker))
-	if table.size(z_skill_tracker) == 0 or settings.tracking_skills == 'off' then
-		textbox:clear()
-		textbox:hide()
-		return
-	end
+	if settings.tracking_skills == 'off' then return end
 
 	local contents = L{}
 	--contents:append(string.padcenter('== Skill Caps ==', SKILL_WIDTH_TOTAL))
+	if z_player.mjlvl == nil then
+		windower.add_to_chat(17, ' -- about to crash! '..debug.traceback())
+	end
+
 	local header = '=== Skill Caps lv'..z_player.mjlvl..' '..z_player.mjtla..' ==='
 	-- '== Skill Caps =='
 	contents:append(string.padcenter(header, SKILL_WIDTH_TOTAL))
@@ -254,104 +274,152 @@ textbox_skills_reinitialize_function = function(textbox, settings)
 
 	textbox:clear()
 	textbox:append(contents:concat('\n'))
-	textbox:show()
+	textbox_render_skill_update()
 end
-z_textbox_skills:register_event('reload', textbox_skills_reinitialize_function)
 
-DELETE_last_error_message = 0
+function textbox_render_page_update(data)
+	local needs_update = false
+	for i, pagedata in ipairs(z_page_tracker) do
+		if pagedata.progress == pagedata.needed then
+			needs_update = true
+		end
+		data['pagep'..i] = pagedata.progress
+	end
+	return needs_update
+end
 
-windower.register_event('prerender', function()
-	local data = {}
-	if table.size(z_page_tracker) > 0 then
-		for i, pagedata in ipairs(z_page_tracker) do
-			if pagedata.progress == pagedata.needed then
-				data['pagec'..i] = '\\cs(128,128,128)'
+function textbox_render_tracker_update(data)
+	if table.size(z_mob_tracker) == 0 then return false end
+
+	local needs_update = false
+	local curtime = os.time()
+	local removemobs = {}
+	data.mobkills = z_mob_tracker_kills
+	for nmid, phtrackdata in pairs(z_phnm_spawn) do
+		data['phdead'..nmid] = phtrackdata.phs_currently_dead
+	end
+	for i, mobid in ipairs(z_mob_tracker_order) do
+		local mob_data = z_mob_tracker[mobid]
+		local colorprefix = ''
+		local colorsuffix = ''
+		local remaining_time = mob_data.respawn - curtime
+		if remaining_time < 10 then
+			colorprefix = '\\cs(255,64,64)'
+			colorsuffix = '\\cr'
+		end
+		if remaining_time > 0 then
+			data['mobt'..mobid] = colorprefix..remaining_time:string():lpad(' ', 3)..'s'..colorsuffix
+		elseif z_mob_tracker[mobid].phnm ~= 0 and z_phnm_spawn[z_mob_tracker[mobid].phnm].time_last_kill < curtime then
+			local mob_data = windower.ffxi.get_mob_by_id(mobid)
+			if mob_data ~= nil and mob_data.valid_target then
+				if z_mob_tracker[mobid].name == 'Unknown' then
+					z_mob_tracker[mobid].name = mob_data.name
+					needs_update = true
+				end
+				local distance = mob_data.distance
+				local distancestr = string.format('%2.1fy', math.sqrt(distance))
+				data['mobt'..mobid] = '\\cs(128,255,128)alive\\cr '..distancestr
+			else
+				data['mobt'..mobid] = 'unknown'
 			end
-			data['pagep'..i] = pagedata.progress
+			if z_mob_tracker[mobid].is_dead == true then
+				z_mob_tracker[mobid].is_dead = false
+				z_phnm_spawn[z_mob_tracker[mobid].phnm].phs_currently_dead = z_phnm_spawn[z_mob_tracker[mobid].phnm].phs_currently_dead - 1
+			end
+		elseif z_mob_tracker[mobid].is_nm then
+			local mob_data = windower.ffxi.get_mob_by_id(mobid)
+			if mob_data ~= nil and mob_data.valid_target then
+				local distance = mob_data.distance
+				local distancestr = string.format('%2.1fy', math.sqrt(distance))
+				data['mobt'..mobid] = '\\cs(128,255,128)!ALIVE!\\cr '..distancestr
+			else
+				data['mobt'..mobid] = '\\cs(128,128,128)not found\\cr '
+			end
+		else
+			table.insert(removemobs, mobid)
 		end
 	end
+	for i,mobid in ipairs(removemobs) do
+		windower.add_to_chat(100, 'Attempting to remove mobid='..mobid)
+		for j, mobjd in ipairs(z_mob_tracker_order) do
+			if mobid == mobjd then
+				table.remove(z_mob_tracker_order, j)
+				needs_update = true
+				break
+			end
+		end
+	end
+	return needs_update
+end
 
-	if table.size(z_mob_tracker) > 0 then
-		local curtime = os.time()
-		local removemobs = {}
-		data.mobkills = z_mob_tracker_kills
-		for nmid, phtrackdata in pairs(z_phnm_spawn) do
-			data['phdead'..nmid] = phtrackdata.currently_dead
+function textbox_render_skill_update()
+	if settings.tracking_skills ~= 'on' then return	end
+
+	local data = {}
+
+	for i, skillgroup in ipairs( { z_skill_tracker_weapon_order, z_skill_tracker_magic_order, z_skill_tracker_defense_order } ) do
+		for j, skillid in ipairs(skillgroup) do
+			data['cur'..skillid] = z_skill_tracker[skillid].current
 		end
-		for i, mobid in ipairs(z_mob_tracker_order) do
-			local mob_data = z_mob_tracker[mobid]
-			local colorprefix = ''
-			local colorsuffix = ''
-			local remaining_time = mob_data.respawn - curtime
-			if remaining_time < 10 then
-				colorprefix = '\\cs(255,64,64)'
-				colorsuffix = '\\cr'
-			end
-			if remaining_time > 0 then
-				data['mobt'..mobid] = colorprefix..remaining_time:string():lpad(' ', 3)..'s'..colorsuffix
-			elseif z_mob_tracker[mobid].phnm ~= nil and z_phnm_spawn[z_mob_tracker[mobid].phnm].earliest_pop_time < curtime then
-				local distance = windower.ffxi.get_mob_by_id(mobid).distance
-				distancestr = string.format('%2.1f', math.sqrt(distance))
-				data['mobt'..mobid] = '\\cs(128,255,128)alive\\cr '..distancestr
-				-- TODO: smart logic here? actually examine that get_mob_by_id data you dumby
-				if z_mob_tracker[mobid].is_dead == true then
-					z_mob_tracker[mobid].is_dead = false
-					z_phnm_spawn[z_mob_tracker[mobid].phnm].currently_dead = z_phnm_spawn[z_mob_tracker[mobid].phnm].currently_dead - 1
-				end
-			else
-				table.insert(removemobs, mobid)
-			end
-		end
-		for i,mobid in ipairs(removemobs) do
-			windower.add_to_chat(100, 'Attempting to remove mobid='..mobid)
-			for j, mobjd in ipairs(z_mob_tracker_order) do
-				if mobid == mobjd then
-					table.remove(z_mob_tracker_order, j)
-					break
-				end
-			end
-		end
-		if table.getn(removemobs) > 0 then textbox_reinitialize_function(z_textbox_misc, settings) end
+	end
+	z_textbox_skills:update(data)
+end
+
+
+function textbox_render_update()
+	local data = {}
+
+	local page_update = textbox_render_page_update(data)
+	local tracker_update = textbox_render_tracker_update(data)
+
+	local made_changes_prioir_to_render = false
+
+	if page_update or tracker_update then
+		textbox_reinitialize_function(z_textbox_misc, settings)
 	end
 	z_textbox_misc:update(data)
+end
 
-	if table.size(z_skill_tracker) > 0 and settings.tracking_skills == 'on' then
-		local data = {}
+--windower.register_event('prerender', function()
+--end)
 
-		for i, skillgroup in ipairs( { z_skill_tracker_weapon_order, z_skill_tracker_magic_order, z_skill_tracker_defense_order } ) do
-			for j, skillid in ipairs(skillgroup) do
-				local skilldata = z_skill_tracker[skillid]
-				if skilldata == nil and DELETE_last_error_message < os.time() then
-					DELETE_last_error_message = os.time() + 10
-					windower.add_to_chat(17, ' -- AutoSkill: error with nil skilldata entry id='..skillid..' in table='..i..', element='..j)
-				end
-
-				if skilldata.is_capped then
-					data['cur'..skillid] = '\\cs(53,140,196)'..skilldata.current..'\\cr'
-				else
-					data['cur'..skillid] = skilldata.current
-				end
-			end
-		end
-		z_textbox_skills:update(data)
-	end
-end)
+local z_last_tracker_render_update = 0
+function do_render_loop()
+	local curtime = os.time()
+	--if z_last_tracker_render_update + 2 < curtime then
+	z_last_tracker_render_update = curtime
+	textbox_render_update()
+	coroutine.schedule(do_render_loop, 2)
+end
 
 windower.register_event('load', function ()
 	regid_action = nil
 	z_locked_target_id = 0
-	resetAllStats()
 	z_track_mode = true
 	z_super_verbose = false
 	z_operational_mode = {}
 	z_paused = true
 	z_latest_status = 'Unknown'
 
+	-- generate junk skill data
+	for skillid,junk in pairs(res.skills) do
+		addSkillTrackCategory(skillid)
+	end
+	-- then populate with player data
+	resetAllStats()
+
+	z_textbox_misc:register_event('reload', textbox_reinitialize_function)
+	z_textbox_skills:register_event('reload', textbox_skills_reinitialize_function)
+	textbox_render_update()
+	textbox_render_skill_update()
+
+
 	EQUIPMENT_AMMO_SLOT = nil
 	for slotindex, slotdata in pairs(res.slots) do
 		if slotdata.en =='Ammo' then EQUIPMENT_AMMO_SLOT = slotdata.id end
 	end
-	--periodicNMScan()
+	if settings.nm_scan_repeat > 0 then periodicNMScan() end
+	do_render_loop()
 end)
 
 
@@ -401,12 +469,15 @@ end
 function addSkillTrackCategory(skillid)
 	if skillid == nil or skillid == 0 then return end
 	local key = SKILL_KEYS[skillid]
-	if z_player.skills[key] == nil then return end
 	local skillname = SKILL_KEYS[key]
 	if z_skill_tracker[skillid] == nil then
 		z_skill_tracker[skillid] = {}
-		z_skill_tracker[skillid].id = skillid
 		z_skill_tracker[skillid].name = skillname:rpad(' ', SKILL_PADDING)
+		z_skill_tracker[skillid].current = '-5'
+		z_skill_tracker[skillid].cap = '-6'
+		z_skill_tracker[skillid].is_capped = false
+		z_skill_tracker[skillid].tracking = false
+		return
 	end
 	z_skill_tracker[skillid].current = (z_player.skills[key]):string():lpad(' ', 3)
 	z_skill_tracker[skillid].cap = getSkillCapFor(z_player.mjtla, z_player.effective_level, skillname):string():lpad(' ', 3)
@@ -417,13 +488,18 @@ end
 function recalculateWeaponry(just_weapons)
 	local gear = windower.ffxi.get_items()['equipment']
 
-	local weapons_before = table.getn(z_skill_tracker_weapon_order)
 	local mainwep_skillid = 0
 	local subwep_skillid = 0
 	-- check if main weapon exists, pull it's information
 	if gear.main > 0 then
 		local mainweapon_info = windower.ffxi.get_items(gear.main_bag, gear.main)
 		if mainweapon_info ~= nil then
+			if mainweapon_info.id == nil then
+				windower.add_to_chat(17, 'ON INITIAL LOAD DEBUG ATTEMPT: mainwep info='..table.tostring(mainweapon_info))
+			elseif res.items[mainweapon_info.id] == nil then
+				windower.add_to_chat(17, 'Res.items gave us a nil table on id='..mainweapon_info.id)
+			end
+				
 			mainwep_skillid = res.items[mainweapon_info.id].skill
 			-- if main hand exists, maybe offhand? attempt to pull sub weapon information
 			if gear.sub > 0 then 
@@ -454,12 +530,13 @@ function recalculateWeaponry(just_weapons)
 	end
 
 	local any_changes = false
+	local weapons_before = table.getn(z_skill_tracker_weapon_order)
 	if weapons_after ~= weapons_before then
 		any_changes = true
 	else
-		if z_skill_tracker_weapon_order[1].id ~= mainwep_skillid then any_changes = true end
-		if subwep_skillid > 0 and z_skill_tracker_weapon_order[2].id ~= subwep_skillid then any_changes = true end
-		if z_ranged_skilltype > 0 and z_skill_tracker_weapon_order[ranged_index].id ~= z_ranged_skilltype then any_changes = true end
+		if z_skill_tracker_weapon_order[1] ~= mainwep_skillid then any_changes = true end
+		if subwep_skillid > 0 and z_skill_tracker_weapon_order[2] ~= subwep_skillid then any_changes = true end
+		if z_ranged_skilltype > 0 and z_skill_tracker_weapon_order[ranged_index] ~= z_ranged_skilltype then any_changes = true end
 	end
 
 	windower.add_to_chat(100, 'Recalculating weaponry...')
@@ -898,83 +975,152 @@ z_message_to_function_map[5] = function (actor_id, target_id, actor_index, targe
 	verboseActionMessage(actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
 end
 
--- <actor> defeats <target>.
-z_message_to_function_map[6] = function (actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
-	z_most_recent_kill_id = target_id
-	local curtime = os.time()
-	z_most_recent_kill_time = curtime
-	if not z_track_mode then return end
-	z_mob_tracker_kills = z_mob_tracker_kills + 1
-
-	local respawn_time = 330 -- about 5 1/2 minutes by default
-	local curzone = res.zones[windower.ffxi.get_info().zone].search
-	local mob_data = windower.ffxi.get_mob_by_id(target_id)
-	--z_ph_info[target_id].last_death = os.time()
-	if z_mob_tracker[target_id] == nil then
-		z_mob_tracker[target_id] = {}
-		z_mob_tracker[target_id].name = mob_data.name
-	end
-	-- was target a placeholder?
-	if z_mobdata.phs[curzone][target_id] ~= nil then
-		local my_nm = z_mobdata.phs[curzone][target_id].related_nm
-		z_mob_tracker[target_id].phnm = my_nm
-		z_mob_tracker[target_id].is_dead = true
-		-- TODO: scrape respawn times from SQL
-		if curzone == 'Oztroja' then respawn_time = 10 end -- 792
-		if z_phnm_spawn[my_nm] == nil then
-			z_phnm_spawn[my_nm] = {}
-			z_phnm_spawn[my_nm].name = z_mobdata.nms[curzone][my_nm].name
-			z_phnm_spawn[my_nm].kills = 0
-			z_phnm_spawn[my_nm].probability = 1
-			z_phnm_spawn[my_nm].currently_dead = 0
-			z_phnm_spawn[my_nm].total = 0
-			for phid,phdata in pairs(z_mobdata.phs[curzone]) do
-				if my_nm == phdata.related_nm then
-					z_phnm_spawn[my_nm].total = z_phnm_spawn[my_nm].total + 1
-				end
-			end
-			if settings.nms[z_phnm_spawn[my_nm].name] ~= nil then
-				z_phnm_spawn[my_nm].earliest_pop_time = settings.nms[z_phnm_spawn[my_nm].name].earliest_pop_time
-			else
-				z_phnm_spawn[my_nm].earliest_pop_time = 0
+function loadNMsettingsToTracker(nm_id)
+	local nm_name = z_phnm_spawn[nm_id].name
+	local nm_key = string.toluakey(nm_name)
+	if settings.nms[nm_key] == nil then -- no entries found, create a new one
+		settings.nms[nm_key] = {}
+		settings.nms[nm_key].name = nm_name
+		settings.nms[nm_key].time_last_kill = 0
+		settings.nms[nm_key].ph_kills = 0
+	else -- found some data, can we fill in any gaps?
+		if z_phnm_spawn[nm_id].time_last_kill == 0 then
+			z_phnm_spawn[nm_id].time_last_kill = settings.nms[nm_key].time_last_kill
+			z_phnm_spawn[nm_id].ph_kills = settings.nms[nm_key].ph_kills
+			for i = 1,z_phnm_spawn[nm_id].ph_kills,1 do
+				-- TODO: scrape the placeholder chance
+				z_phnm_spawn[nm_id].probability = z_phnm_spawn[nm_id].probability * 0.95
 			end
 		end
-		z_phnm_spawn[my_nm].kills = z_phnm_spawn[my_nm].kills + 1
-		z_phnm_spawn[my_nm].currently_dead = z_phnm_spawn[my_nm].currently_dead + 1
-		z_phnm_spawn[my_nm].probability = z_phnm_spawn[my_nm].probability * 0.95
+		if z_mob_tracker[nm_id].respawn == 0 then
+			z_mob_tracker[nm_id].respawn = settings.nms[nm_key].time_last_kill
+		end
+	end
+	return nm_key
+end
+
+function beginTrackingMob(mobid, curzone)
+	if z_mob_tracker[mobid] ~= nil then return end
+
+	if curzone == nil then curzone = res.zones[windower.ffxi.get_info().zone].search end
+
+	local mob_name = 'Unknown'
+	if z_mobdata.nms[curzone][mobid] ~= nil then
+		mob_name = z_mobdata.nms[curzone][mobid].name
+	else
+		local mob_data = windower.ffxi.get_mob_by_id(mobid)
+		if mob_data ~= nil then
+			mob_name = mob_data.name
+		end
+	end
+
+	z_mob_tracker[mobid] = {}
+	z_mob_tracker[mobid].name = mob_name
+	z_mob_tracker[mobid].is_nm = false
+	z_mob_tracker[mobid].respawn = 0
+	-- TODO: scrape respawn times from SQL
+	z_mob_tracker[mobid].respawn_time = 330 -- about 5 1/2 minutes by default
+	if curzone == 'Oztroja' then z_mob_tracker[mobid].respawn_time = 792 end
+
+	-- was target a placeholder?
+	if z_mobdata.phs[curzone][mobid] == nil then
+		z_mob_tracker[mobid].phnm = 0
+	else
+		local nm_id = z_mobdata.phs[curzone][mobid].related_nm
+		z_mob_tracker[mobid].phnm = nm_id
+		-- track my related NM
+		beginTrackingMob(nm_id, curzone)
 	end
 	-- was target an NM?
-	if z_mobdata.nms[curzone][target_id] ~= nil then
-		respawn_time = z_mobdata.nms[curzone][target_id].respawn_minimum
-		if z_phnm_spawn[target_id] ~= nil then
-			z_phnm_spawn[target_id].probability = 1
-			z_phnm_spawn[target_id].earliest_pop_time = curtime + respawn_time
-			local nmname = z_phnm_spawn[target_id].name
-			if settings.nms[nmname] == nil then
-				settings.nms[nmname] = {}
+	if z_mobdata.nms[curzone][mobid] ~= nil then
+		z_mob_tracker[mobid].is_nm = true
+		z_mob_tracker[mobid].respawn_time = z_mobdata.nms[curzone][mobid].respawn_minimum
+		if z_phnm_spawn[mobid] == nil then
+			-- create the NM tracking group data
+			z_phnm_spawn[mobid] = {}
+			z_phnm_spawn[mobid].name = z_mobdata.nms[curzone][mobid].name
+			z_phnm_spawn[mobid].time_last_kill = 0
+			z_phnm_spawn[mobid].ph_kills = 0
+			z_phnm_spawn[mobid].probability = 1
+			z_phnm_spawn[mobid].phs_currently_dead = 0
+			z_phnm_spawn[mobid].total_phs = 0
+			-- update with any settngs we can
+			z_phnm_spawn[mobid].key = loadNMsettingsToTracker(mobid)
+			if z_phnm_spawn[mobid].time_last_kill > 0 then
+				z_mob_tracker[mobid].respawn = z_mob_tracker[target_id].respawn_time + MOB_TRACKER_FADE_TIME
 			end
-			settings.nms[nmname].earliest_pop_time = curtime + respawn_time
-			settings.nms[nmname].ph_kills = 0
-			settings:save()
-			-- stop tracking the placeholders
-			local removemobs = {}
-			for i, mobid in ipairs(z_mob_tracker_order) do
-				if z_mob_tracker[mobid].phnm == target_id then
-					table.insert(removemobs, mobid)
-				end
-			end
-			for i,mobid in ipairs(removemobs) do
-				windower.add_to_chat(100, 'Attempting to remove mobid='..mobid)
-				for j, mobjd in ipairs(z_mob_tracker_order) do
-					if mobid == mobjd then
-						table.remove(z_mob_tracker_order, j)
-						break
+			-- track self 
+			table.insert(z_mob_tracker_order, mobid)
+			-- and all related placeholders
+			if z_mob_tracker[mobid].respawn < os.time() then
+				for phid,phdata in npairs(z_mobdata.phs[curzone]) do
+					if mobid == phdata.related_nm then
+						z_phnm_spawn[mobid].total_phs = z_phnm_spawn[mobid].total_phs + 1
+						beginTrackingMob(phid, curzone)
+						table.insert(z_mob_tracker_order, phid)
 					end
 				end
 			end
 		end
 	end
-	z_mob_tracker[target_id].respawn = os.time() + respawn_time
+end
+
+-- <actor> defeats <target>.
+z_message_to_function_map[6] = function (actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
+	local curtime = os.time()
+	z_most_recent_kill_id = target_id
+	z_most_recent_kill_time = curtime
+	if not z_track_mode then return end
+	z_mob_tracker_kills = z_mob_tracker_kills + 1
+
+	--z_mob_tracker[target_id].last_death = os.time()
+	local curzone = res.zones[windower.ffxi.get_info().zone].search
+	beginTrackingMob(target_id, curzone)
+
+	-- was target a placeholder?
+	if z_mobdata.phs[curzone][target_id] ~= nil then
+		local nm_id = z_mobdata.phs[curzone][target_id].related_nm
+		z_mob_tracker[target_id].is_dead = true
+		z_phnm_spawn[nm_id].ph_kills = z_phnm_spawn[nm_id].ph_kills + 1
+		z_phnm_spawn[nm_id].phs_currently_dead = z_phnm_spawn[nm_id].phs_currently_dead + 1
+		-- TODO: scrape the placeholder chance
+		z_phnm_spawn[nm_id].probability = z_phnm_spawn[nm_id].probability * 0.95
+		-- update the persistent record of this NM
+		if curtime > settings.nms[z_phnm_spawn[nm_id].key].time_last_kill then
+			settings.nms[z_phnm_spawn[nm_id].key].ph_kills = settings.nms[z_phnm_spawn[nm_id].key].ph_kills + 1
+			settings:save()
+		end
+	end
+	-- was target an NM?
+	if z_mobdata.nms[curzone][target_id] ~= nil then
+		z_phnm_spawn[target_id].ph_kills = 0
+		z_phnm_spawn[target_id].phs_currently_dead = 0
+		z_phnm_spawn[target_id].probability = 1
+		z_phnm_spawn[target_id].time_last_kill = curtime
+		-- update the persistent record of this NM
+		local nm_key = z_phnm_spawn[target_id].key
+		settings.nms[nm_key].time_last_kill = z_phnm_spawn[nm_key].time_last_kill
+		settings.nms[nm_key].ph_kills = 0
+		settings:save()
+		-- stop tracking the placeholders
+		local removemobs = {}
+		for i, mobid in ipairs(z_mob_tracker_order) do
+			if z_mob_tracker[mobid].phnm == target_id then
+				table.insert(removemobs, mobid)
+			end
+		end
+		windower.add_to_chat(100, 'Killed PHNM. Removing placeholders...')
+		for i,mobid in ipairs(removemobs) do
+			windower.add_to_chat(100, 'Attempting to remove mobid='..mobid)
+			for j, mobjd in ipairs(z_mob_tracker_order) do
+				if mobid == mobjd then
+					table.remove(z_mob_tracker_order, j)
+					break
+				end
+			end
+		end
+	end
+	z_mob_tracker[target_id].respawn = os.time() + z_mob_tracker[target_id].respawn_time + MOB_TRACKER_FADE_TIME
 	local insert_at = 0
 	local old_index = 0
 	for i,mobid in ipairs(z_mob_tracker_order) do
@@ -1028,7 +1174,9 @@ z_message_to_function_map[53] = function (actor_id, target_id, actor_index, targ
 		z_skill_tracker[param_1].current = param_2:string():lpad(' ', 3)
 		if z_skill_tracker[param_1].current == z_skill_tracker[param_1].cap then
 			z_skill_tracker[param_1].is_capped = true
+			textbox_skills_reinitialize_function()
 		end
+		textbox_render_skill_update()
 	end
 end
 
@@ -1092,16 +1240,24 @@ z_message_to_function_map[558] = function (actor_id, target_id, actor_index, tar
 				latest_kill_index = i
 			end
 		end
-		if latest_kill_index == 0 then -- still couldn't find it, start a new entry
+		if latest_kill_index == 0 then
+			-- still couldn't find it, start a new entry
 			local page_entry = {}
 			page_entry.name = mob_data.name
 			page_entry.progress = param_1
 			page_entry.needed = param_2
 			page_entry.is_family = false
 			table.insert(z_page_tracker, page_entry)
+
+			local index = tostring(table.getn(z_page_tracker))
+			settings.page_tracker[index].name = page_entry.name
+			settings.page_tracker[index].progress = page_entry.progress
+			settings.page_tracker[index].needed = page_entry.needed
+			settings.page_tracker[index].is_family = page_entry.is_family
 			textbox_reinitialize_function(z_textbox_misc, settings)
 		else
 			z_page_tracker[latest_kill_index].progress = param_1
+			settings.page_tracker[tostring(latest_kill_index)].progress = param_1
 		end
 		settings:save()
 		z_most_recent_kill_id = 0
@@ -1112,16 +1268,19 @@ z_message_to_function_map[558] = function (actor_id, target_id, actor_index, tar
 	windower.add_to_chat(100, ' -- AutoSkill error: page completion message with no kill message?')
 	local candidate_index = ''
 	local possible = 0
-	for i,pagedata in pairs(z_page_tracker) do
+	for i,pagedata in ipairs(z_page_tracker) do
 		if pagedata.needed == param_2 and pagedata.progress + 1 == param_1 then
 			candidate_index = i
 			possible = possible + 1
 		end
 	end
 	if possible == 1 then
-		z_page_tracker[candidate].progress = param_1
+		z_page_tracker[candidate_index].progress = param_1
+		settings:save()
+	else
+		windower.add_to_chat(17, ' -- AutoSkill: unable to identify page kill index -- WE SHOULD BE SMARTER')
+		verboseActionMessage(actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
 	end
-	verboseActionMessage(actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
 end
 
 -- You have successfully completed the training regime.
@@ -1136,11 +1295,13 @@ z_message_to_function_map[559] = function (actor_id, target_id, actor_index, tar
 		end
 	end
 	for i,pagename in ipairs(remove_mobs) do z_page_tracker[pagename] = nil end
+	textbox_render_update()
 	if settings.play_sounds then
 		local files = {}
 		for key,name in pairs(settings.sound_files.book_complete) do table.insert(files, name) end
 		playSoundEffect(files[math.random(table.getn(files))])
 	end
+	settings:save()
 end
 
 windower.register_event('action message', function(actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
@@ -1601,7 +1762,6 @@ windower.register_event('addon command',function (...)
 			settings.tracking_skills = 'off'
 			settings:save()
 			windower.add_to_chat(17, ' -- AutoSkill: Skill tracking disabled.')
-			textbox_skills_reinitialize_function(z_textbox_skills, settings)
 		end
 	elseif param[1] == 'check' then
 		isTargetEnemySkillable(true)

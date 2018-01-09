@@ -84,3 +84,7 @@ function string.padcenter(str, max_len)
 	local leftpad = math.floor((max_len - len) / 2)
 	return ' ':rep(leftpad)..str..' ':rep(max_len - (len + leftpad))
 end
+
+function string.toluakey(str)
+	return str:lower():gsub('[ -]', '_')
+end

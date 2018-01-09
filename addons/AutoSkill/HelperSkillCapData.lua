@@ -24,9 +24,7 @@ SKILL_KEYS = {}
 SKILL_IDS = {}
 for i,skilldata in pairs(res.skills) do
 	if i > 0 then
-		local key = skilldata.en:lower()
-		key = key:gsub(' ', '_')
-		key = key:gsub('-', '_')
+		local key = string.toluakey(skilldata.en)
 		local shortened = skilldata.en
 		shortened = shortened:gsub(' Magic', '')
 		shortened = shortened:gsub(' Instrument', '')
