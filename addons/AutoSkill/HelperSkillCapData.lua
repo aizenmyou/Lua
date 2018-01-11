@@ -1,6 +1,19 @@
 -- I made this myself, in a cave, with a box of scraps.
 -- DON'T MESS IT UP!
 
+CRAFTING_SKILLS = {
+	'Fishing', 'Woodworking', 'Smithing', 'Goldsmithing', 'Clothcraft',
+	'Leathercraft', 'Bonecraft', 'Alchemy', 'Cooking', 'Synergy'
+}
+CRAFTING_IDS = {}
+for i,craft in ipairs(CRAFTING_SKILLS) do
+	for j,skilldata in pairs(res.skills) do
+		if skilldata.en == craft then
+			CRAFTING_IDS[j] = string.toluakey(craft)
+			break
+		end
+	end
+end
 -- descending order of skill listing
 CAP_ORDER = { 'A+', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D', 'E', 'F', 'G' }
 

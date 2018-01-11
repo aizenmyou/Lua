@@ -1,3 +1,4 @@
+-- TODO: only show shield skill if SHIELD IS EQUIPPED LIKE AN OFFHAND YOU DIPSHIT
 -- TODO: wait for body to fade before marking as dead --- currently just tacking on MOB_TRACKER_FADE_TIME
 
 --TODO: page tracking needs completion and testing
@@ -389,7 +390,7 @@ function do_render_loop()
 	--if z_last_tracker_render_update + 2 < curtime then
 	z_last_tracker_render_update = curtime
 	textbox_render_update()
-	coroutine.schedule(do_render_loop, 2)
+	coroutine.schedule(do_render_loop, 0.5)
 end
 
 windower.register_event('load', function ()
@@ -413,6 +414,26 @@ windower.register_event('load', function ()
 	textbox_render_update()
 	textbox_render_skill_update()
 
+	local window_settings = windower.get_windower_settings()
+	if window_settings ~= nil then
+		local x_max = window_settings.x_res
+		local y_max = window_settings.y_res
+		local buffer_region = 50
+		local reset_display = false
+		if settings.display.pos.x > x_max - buffer_region or settings.display.pos.x < 0 then reset_display = true end
+		if settings.display.pos.y > y_max - buffer_region or settings.display.pos.y < 0 then reset_display = true end
+		if reset_display then
+			settings.display.pos.x = default_settings.display.pos.x
+			settings.display.pos.y = default_settings.display.pos.y
+		end
+		reset_display = false
+		if settings.skilldisplay.pos.x > x_max - buffer_region or settings.skilldisplay.pos.x < 0 then reset_display = true end
+		if settings.skilldisplay.pos.y > y_max - buffer_region or settings.skilldisplay.pos.y < 0 then reset_display = true end
+		if reset_display then
+			settings.skilldisplay.pos.x = default_settings.skilldisplay.pos.x
+			settings.skilldisplay.pos.y = default_settings.skilldisplay.pos.y
+		end
+	end
 
 	EQUIPMENT_AMMO_SLOT = nil
 	for slotindex, slotdata in pairs(res.slots) do
@@ -687,7 +708,7 @@ function recalculateAbilities()
 	--windower.add_to_chat(100, 'Player spell recasts: '..table.tostring(spell_recasts))
 end
 
-local function playSoundEffect(sound_file)
+function playSoundEffect(sound_file)
 	if settings.play_sounds then
 		windower.play_sound(windower.addon_path..sound_file)
 	end
@@ -1158,6 +1179,7 @@ end
 
 --	<target>'s <skill> skill rises 0.<number> points.
 z_message_to_function_map[38] = function (actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
+	if CRAFTING_IDS[param_1] ~= nil then return end
 	if not z_skill_tracker[param_1].tracking then
 		-- got a skill up on a weapon we weren't tracking, must have changed gear
 		recalculateWeaponry(true)
@@ -1166,6 +1188,7 @@ end
 
 -- <target>'s <skill> skill reaches level <number>.
 z_message_to_function_map[53] = function (actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
+	if CRAFTING_IDS[param_1] ~= nil then return end
 	if not z_skill_tracker[param_1].tracking then
 		-- got a skill up on a weapon we weren't tracking, must have changed gear
 		recalculateWeaponry(true)
@@ -1250,6 +1273,9 @@ z_message_to_function_map[558] = function (actor_id, target_id, actor_index, tar
 			table.insert(z_page_tracker, page_entry)
 
 			local index = tostring(table.getn(z_page_tracker))
+			if settings.page_tracker[index] == nil then
+				settings.page_tracker[index] = {}
+			end
 			settings.page_tracker[index].name = page_entry.name
 			settings.page_tracker[index].progress = page_entry.progress
 			settings.page_tracker[index].needed = page_entry.needed
@@ -1657,7 +1683,7 @@ windower.register_event('addon command',function (...)
 	end
 	local paramtwoall = ''
 	if paramcount > 1 then
-		paramtwoall =varargs[2]
+		paramtwoall = varargs[2]
 		for i=3,paramcount,1 do paramtwoall = paramtwoall..' '..varargs[i] end
 	end
 	
