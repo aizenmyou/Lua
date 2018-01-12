@@ -28,6 +28,7 @@ if settings.is_paused == false then
 	settings.extra_time = settings.extra_time + (os.time() - settings.saved_time)
 	settings.saved_time = os.time()
 	fast_time = os.clock()
+	settings:save()
 end
 
 render_stopwatch = function()
@@ -40,18 +41,15 @@ render_stopwatch = function()
 end
 
 function set_show(mode)
-	if mode ~= nil then
-		settings.is_shown = mode
-	end
-	if settings.is_shown == false then
-		settings.is_paused = true
+	local should_display = mode
+	if mode == nil then should_display = settings.is_shown end
+	if should_display == false then
 		timer_display:hide()
 		if render_regid ~= nil then
 			windower.unregister_event(render_regid)
 			render_regid = nil
 		end
 	else
-		settings.is_paused = false
 		timer_display:show()
 		if render_regid == nil then
 			render_regid = windower.register_event('prerender', render_stopwatch)
@@ -93,8 +91,10 @@ windower.register_event('addon command', function(command)
 			settings.saved_time = os.time()
 			fast_time = os.clock()
 			settings.extra_time = 0
-			set_show(true)
+			settings.is_shown = true
+			settings.is_paused = false
 			settings:save()
+			set_show()
 		end
 	elseif command == 'pause' then
 		if settings.is_shown == true then
@@ -112,12 +112,14 @@ windower.register_event('addon command', function(command)
 		end
 	elseif command == 'stop' then
 		if settings.is_shown == true then
-			set_show(false)
+			settings.is_shown = false
+			settings.is_paused = true
 			settings:save()
+			set_show()
 		end
 	elseif command == 'reset' then
-		settings.saved_time = os.time()
 		fast_time = os.clock()
+		settings.saved_time = os.time()
 		settings.extra_time = 0
 		settings:save()
 	elseif command == 'resetpos' then
