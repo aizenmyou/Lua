@@ -1,21 +1,19 @@
--- DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE
---                   Version 2, December 2004
---License Copyright (C) 2004 Sam Hocevar <sam@hocevar.net>
---Everyone is permitted to copy and distribute verbatim or modified
---copies of this license document, and changing it is allowed as long
---as the name is changed.
---
---           DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE
+--           DWTFYWT PUBLIC LICENSE
 --  TERMS AND CONDITIONS FOR COPYING, DISTRIBUTION AND MODIFICATION
 --
--- 0. You just DO WHAT THE FUCK YOU WANT TO.
- 
- _addon.name = 'ItemID'
-_addon.version = '0.1'
+-- 1. You just DO WHAT THE FUCK YOU WANT TO.
+
+_addon.name = 'ItemID'
+_addon.version = '0.2'
 _addon.author = 'freeZerg'
 _addon.commands = {'itemid','iid'}
 
 res = require('resources')
+
+function display_item(id)
+	windower.add_to_chat(100, 'Found Item ID='..id..' name="'..res.items[id].en..'" -- enl="'..res.items[id].enl..'" with the following description:')
+	windower.add_to_chat(100, res.item_descriptions[id].en)
+end
 
 windower.register_event('addon command',function (...)
 	local varargs = {...}
@@ -30,51 +28,52 @@ windower.register_event('addon command',function (...)
 	end
 	
 	if param_count == 0 then
-		windower.add_to_chat(17, ' -- Specify an item ID or an item name. Ie. //iid arrow    or  //iid jujitsu')
+		windower.add_to_chat(100, ' -- Specify an item ID or an item name. Ie. //iid arrow    or  //iid jujitsu')
 		return
 	end
 
 	-- gave a number, examine as an Item ID
 	if type(param[1]) == 'number' then
 		if res.items[param[1]] ~= nil then
-			windower.add_to_chat(17, ' -- Item ID='..param[1]..' name='..res.items[param[1]].en..' -- enl='..res.items[param[1]].enl)
+			display_item(param[1])
 		else
-			windower.add_to_chat(17, ' -- Item with index/ID='..param[1]..' was not found.')
+			windower.add_to_chat(100, ' -- Item with index/ID='..param[1]..' was not found.')
 		end
 		return
 	end
 	
 	-- not a number, examine all items for a string or substring match
 	local itemname = param_all:lower()
-	local total_searched = 0
+	local results, total_searched = 0, 0
 	local candidate_id = {}
 	for itemid,itemdata in pairs(res.items) do
 		local en = itemdata.en:lower()
-		local enl= itemdata.enl:lower()
-		if en:find(itemname) ~= nil then
-			table.insert(candidate_id, itemid)
-		elseif enl:find(itemname) ~= nil then
-			table.insert(candidate_id, itemid)
+		local enl = itemdata.enl:lower()
+		if en:find(itemname) ~= nil or enl:find(itemname) ~= nil then
+			if en == itemname or enl == itemname then
+				table.insert(candidate_id, 1, itemid) -- inject to the top of the candidate list
+			elseif results < 10 then
+				table.insert(candidate_id, itemid)
+			end
+			results = results + 1
 		end
 		total_searched = total_searched + 1
 	end
-	local results = table.getn(candidate_id)
 	if results == 0 then
-		windower.add_to_chat(17, ' -- Item with name="'..itemname..'" was not found in '..total_searched..' items searched.')
+		windower.add_to_chat(100, ' -- Item with name="'..itemname..'" was not found in '..total_searched..' items searched.')
 	elseif results == 1 then
-		windower.add_to_chat(17, ' -- Item ID='..candidate_id[1]..' name='..res.items[candidate_id[1]].en..' -- enl='..res.items[candidate_id[1]].enl)
+		display_item(candidate_id[1])
 	else
-		windower.add_to_chat(17, ' -- Item candidates found: '..results)
+		local too_many_note = (table.getn(candidate_id) > 10) and ' Note: Too many results; displaying the first ten.' or ''
+		windower.add_to_chat(100, 'Item candidates found: '..results..' of '..total_searched..' items searched had a partial match.'..too_many_note)
 		local display_count = 0
 		local idpadding = 0
 		local namepadding = 0
 		for i,id in ipairs(candidate_id) do
-			windower.add_to_chat(17, '  id='..id..' name='..res.items[id].en..' -- enl='..res.items[id].enl)
+			local exact_match = (res.items[id].en == itemname or res.items[id].enl == itemname) and '     (EXACT MATCH) ' or ''
+			windower.add_to_chat(100, 'id='..id..' name='..res.items[id].en..' -- enl='..res.items[id].enl..exact_match)
 			display_count = display_count + 1
-			if display_count >= 10 then
-				windower.add_to_chat(17, ' -- Note: Too many results. (Stopped after the first ten.)')
-				break
-			end
+			if display_count >= 10 then break end
 		end
 	end
 end)
