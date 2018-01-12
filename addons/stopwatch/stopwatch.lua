@@ -1,63 +1,133 @@
 _addon.name = 'stopwatch'
-_addon.author = 'Patrick Finnigan (Puhfyn@Ragnarok)'
-_addon.version = '1.0'
+_addon.author = 'freeZerg'
+_addon.version = '1.1'
 _addon.commands = {'sw', 'stopwatch'}
 
-require('logger')
 config = require('config')
-texts = require('texts')
-timeit = require('timeit')
+local texts = require('texts')
+local render_regid = nil
 
-defaults = {}
-defaults.pos = {}
-defaults.pos.x = 450
-defaults.pos.y = 0
-defaults.text = {}
-defaults.text.font = 'Arial'
-defaults.text.size = 12
+local defaults = {}
+defaults.saved_time = 0
+local fast_time = 0
+defaults.extra_time = 0
+defaults.is_shown = false
+defaults.is_paused = false
+defaults.display = {}
+defaults.display.pos = {}
+defaults.display.pos.x = windower.get_windower_settings().x_res / 2
+defaults.display.pos.y = 100
+defaults.display.text = {}
+defaults.display.text.font = 'Arial'
+defaults.display.text.size = 12
+local settings = config.load(defaults)
 
-settings = config.load(defaults)
-times = texts.new(settings)
-is_active = false
-cumulative_time = 0
-timer = timeit.new()
+local timer_display = texts.new(settings.display, settings)
+local MAX_TIME = 99*3600 + 99 * 59 + 59
+if settings.is_paused == false then
+	settings.extra_time = settings.extra_time + (os.time() - settings.saved_time)
+	settings.saved_time = os.time()
+	fast_time = os.clock()
+end
 
-windower.register_event('prerender', function()
-    local info = windower.ffxi.get_info()
-    if not info.logged_in then
-        times:hide()
-        return
-    end
+render_stopwatch = function()
+	local total_time = settings.extra_time
+	if not settings.is_paused then
+		total_time = total_time + (os.clock() - fast_time)
+	end
+	total_time = math.floor(total_time)
+	timer_display:text(string.format('%0.2d:%0.2d:%0.2d', (total_time / 3600), (total_time / 60) % 60, (total_time) % 60))
+end
 
-    total_time = cumulative_time
-    if is_active == true then
-        total_time = total_time + timer:check()
-    end
-    times:text(string.format('%0.2d:%0.2d:%0.2d', math.floor(total_time / 3600), math.floor(total_time / 60) % 60, math.floor(total_time) % 60))
-    times:visible(true)
+function set_show(mode)
+	if mode ~= nil then
+		settings.is_shown = mode
+	end
+	if settings.is_shown == false then
+		settings.is_paused = true
+		timer_display:hide()
+		if render_regid ~= nil then
+			windower.unregister_event(render_regid)
+			render_regid = nil
+		end
+	else
+		settings.is_paused = false
+		timer_display:show()
+		if render_regid == nil then
+			render_regid = windower.register_event('prerender', render_stopwatch)
+		end
+	end
+end
+
+windower.register_event('logout', function()
+	set_show(false)
 end)
 
-windower.register_event('addon command', function(command)
-    command = command:lower()
+windower.register_event('login', function()
+	set_show()
+end)
 
-    if command == 'start' then
-        if is_active == false then
-            is_active = true
-            timer:start()
-        end
-    elseif command == 'stop' then
-        if is_active == true then
-            is_active = false
-            cumulative_time = cumulative_time + timer:stop()
-        end
-    elseif command == 'reset' then
-        cumulative_time = 0
-        timer:next()
-    else
-        log("'sw start' to start the stopwatch" )
-        log("'sw stop' to stop the stopwatch")
-        log("'sw reset' to reset the stopwatch cumulative time to 0")
-    end
+windower.register_event('load', function()
+	-- just because the plugin loaded doesn't mean we're logged in -- could be at char select screen
+	-- also could have just reloaded from being logged in
+	if windower.ffxi.get_info().logged_in == false then
+		set_show(false)
+		return
+	end
+	set_show()
+end)
+
+local HELP_MESSAGE = [[
+StopWatch - Commands listing:
+//stopwatch [command]       -- (aka. //sw)
+  //sw start     -- start and show the stopwatch
+  //sw pause     -- pause the timer, time still displayed
+  //sw reset     -- reset the time to 0
+  //sw stop      -- stop and hide the stopwatch
+  //sw resetpos  -- display the stopwatch near the top-center of your screen]]
+windower.register_event('addon command', function(command)
+	command = command:lower()
+
+	if command == 'start' then
+		if settings.is_shown == false then
+			settings.saved_time = os.time()
+			fast_time = os.clock()
+			settings.extra_time = 0
+			set_show(true)
+			settings:save()
+		end
+	elseif command == 'pause' then
+		if settings.is_shown == true then
+			if settings.is_paused then -- unpause
+				settings.saved_time = os.time()
+				fast_time = os.clock()
+				settings.is_paused = false
+				windower.add_to_chat(100, 'not paused no mo')
+			else
+				settings.extra_time = settings.extra_time + (os.clock() - fast_time)
+				settings.is_paused = true
+				windower.add_to_chat(100, 'i pause nao')
+			end
+			settings:save()
+		end
+	elseif command == 'stop' then
+		if settings.is_shown == true then
+			set_show(false)
+			settings:save()
+		end
+	elseif command == 'reset' then
+		settings.saved_time = os.time()
+		fast_time = os.clock()
+		settings.extra_time = 0
+		settings:save()
+	elseif command == 'resetpos' then
+		settings.display.pos.x = windower.get_windower_settings().x_res / 2
+		settings.display.pos.y = 100
+		settings:save()
+		timer_display:pos(settings.display.pos.x, settings.display.pos.y)
+	else
+		windower.add_to_chat(100, HELP_MESSAGE)
+	end
 end)
 
 --[[
