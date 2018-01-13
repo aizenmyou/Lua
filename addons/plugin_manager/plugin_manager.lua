@@ -35,6 +35,10 @@ _addon.author = 'Byrth'
 _addon.name = 'plugin_manager'
 _addon.commands = {}
 
+--WAIT_BEFORE_LOAD = 3
+FOR_POTATO_COMPUTERS = 10
+WAIT_BEFORE_LOAD = FOR_POTATO_COMPUTERS
+
 windower.register_event('addon command',function(...)
 	local cmd = {...}
 	if cmd[1] == 'load' then
@@ -78,9 +82,9 @@ windower.register_event('load',function()
 	
 	windower.send_command(firstrun)
 	if windower.ffxi.get_player() then
-        coroutine.sleep(3) -- Wait for firstrun to finish
+        coroutine.sleep(WAIT_BEFORE_LOAD) -- Wait for firstrun to finish
         unload_plugins()
-        coroutine.sleep(3) -- Wait for the unload command spam to finish
+        coroutine.sleep(WAIT_BEFORE_LOAD) -- Wait for the unload command spam to finish
         load_plugins()
 	end
 end)
@@ -160,12 +164,12 @@ end
 
 function load_plugins(name)
     name = make_name(name)
-	local working_array,commandstr = {},'@'
-	
+	local working_array = {}
+	local commandstr = '@'
 	for q,r in pairs(general_array) do
 		for i,v in pairs(loader_array[name][q]) do
 			if general_array[q][v] then
-				commandstr = commandstr..load_command[q]..v..';'
+				commandstr = commandstr..load_command[q]..v..';wait 0.5;'
 			end
 		end
 	end
@@ -186,7 +190,7 @@ function unload_plugins(name)
 end
 
 windower.register_event('login',function(name)
-    coroutine.sleep(3)
+    coroutine.sleep(WAIT_BEFORE_LOAD)
     load_plugins(name)
 end)
 

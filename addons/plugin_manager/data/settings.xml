@@ -1,27 +1,41 @@
 <settings>
 	<global>
 		<!-- This will be used for all the characters that you don't make a specific set of plugins/addons for -->
+		<addon>Lolobuki</addon>			<!-- PHOenICEtv personal creation -->
 	</global>
 	<Freazer> <!-- This is just an example. You need to replace "YourName" to the left and below with the character name that you want the set of plugins to work for. -->
-		<addon>barfiller</addon>		<!-- EXP bar above help window -->
-		<addon>chars</addon>			<!-- note and other pretty character -->
-		<!-- <addon>ChatLink</addon>	--> 		<!-- URLs in FFXI chat -->
 		<addon>craft</addon>			<!-- craft repeat commands, default food etc -->
-		<addon>DistancePlus</addon>		<!-- Distance value with additional magic/height information -->
-		<addon>GearSwap</addon>			<!-- fancy gear management system defined via Lua for pre/post casting -->
+		
+		<!-- chat mods -->
+		<!-- <addon>linker</addon>	-->	<!-- URLs in FFXI chat ... doens't work?? -->
+		<addon>ChatLink</addon>			<!-- URLs in FFXI chat -->
+		<addon>chars</addon>			<!-- note and other pretty character -->
 		<addon>highlight</addon>		<!-- change color of party member names in chat for easier reading -->
 		<addon>instaLS</addon>			<!-- supposedly makes linkshell chat available more quickly -->
-		<addon>linker</addon>			<!-- URLs in FFXI chat -->
 		<addon>Logger</addon>			<!-- log all text to an external chat file -->
+		<addon>stopwatch</addon>		<!-- very simple start/stop/reset timer -->
+		
+		<!-- help with development -->
+		<addon>targetinfo</addon>		<!-- detailed target information, memory analysis -->
+		<addon>ItemID</addon>			<!-- PHOenICEtv personal creation -->
+		
+		<!-- battle display -->
+		<addon>TParty</addon>			<!-- display party's TP as overlay in bottom right -->
 		<addon>PetTP</addon>			<!-- Pet HP MP TP display -->
 		<addon>scoreboard</addon>		<!-- minimal damage meters -->
-		<addon>stopwatch</addon>		<!-- very simple start/stop/reset timer -->
-		<addon>targetinfo</addon>		<!-- detailed target information, memory analysis -->
-		<addon>TParty</addon>			<!-- display party's TP as overlay in bottom right -->
+		<addon>DistancePlus</addon>		<!-- Distance value with additional magic/height information -->
+		
+		<!-- gearing and control -->
+		<addon>GearSwap</addon>			<!-- fancy gear management system defined via Lua for pre/post casting -->
+		<addon>MacroChanger</addon>		<!-- changes the macro page to match your main job -->
 		<addon>Yush</addon>				<!-- macro overwrite system -->
+		<addon>cancel</addon>
 		
 		<addon>AutoSkill</addon>		<!-- PHOenICEtv personal creation -->
+		<addon>SkillCap</addon>			<!-- PHOenICEtv personal creation -->
 		
+		<!-- information -->
+		<addon>barfiller</addon>		<!-- EXP bar above help window -->
 		<plugin>FFXIDB</plugin>			<!-- InGame minimap -->
 		<plugin>InfoBar</plugin>		<!-- various info about targets, level, aggression, linking, etc. -->
 		<plugin>Tickle</plugin>			<!-- shows next resting tick -->
