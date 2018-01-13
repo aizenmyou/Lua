@@ -103,6 +103,6 @@ z_mobdata.nms['Shakhrami'][17588674] = {}
 z_mobdata.nms['Shakhrami'][17588674].name = 'Argus'
 z_mobdata.nms['Shakhrami'][17588674].respawn_minimum = 14400
 -- Leech King
-z_mobdata.nms['Shakhrami'][17588675] = {}
-z_mobdata.nms['Shakhrami'][17588675].name = 'Leech King'
-z_mobdata.nms['Shakhrami'][17588675].respawn_maximum = 14400
+z_mobdata.nms['Shakhrami'][17588685] = {}
+z_mobdata.nms['Shakhrami'][17588685].name = 'Leech King'
+z_mobdata.nms['Shakhrami'][17588685].respawn_maximum = 14400

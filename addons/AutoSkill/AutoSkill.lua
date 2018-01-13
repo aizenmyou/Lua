@@ -69,6 +69,15 @@ local z_skill_tracker_defense_order = {}
 local z_player = {}
 z_player.level_sync = 0
 z_player.skills = {}
+z_player.obtains_msg = 'PLAYERNAME obtains a'
+z_player.obtains_msg_len = z_player.obtains_msg:len()
+z_player.finds_msg = 'You find a'
+z_player.finds_msg_len = z_player.finds_msg:len()
+z_player.throws_msg = 'You throw away a'
+z_player.throws_msg_len = z_player.throws_msg:len()
+local z_pause_autodrop = false
+local z_autodrop_filter_time = 0
+local z_autodrop_filter_items = {}
 
 -- Conventional settings layout
 local default_settings = {}
@@ -129,6 +138,7 @@ default_settings.skilldisplay.text.stroke.red   = 17
 default_settings.skilldisplay.text.stroke.green = 28
 default_settings.skilldisplay.text.stroke.blue  = 48
 default_settings.skilldisplay.text.stroke.alpha = 255
+default_settings.autodrop = {}
 default_settings.nms = {}
 default_settings.nms['Leaping_Lizzy'] = {}
 default_settings.nms['Leaping_Lizzy'].time_last_kill = 0
@@ -253,13 +263,14 @@ textbox_skills_reinitialize_function = function(textbox, settings)
 	--windower.add_to_chat(17, 'Skill text box='..settings.tracking_skills..' and size='..table.size(z_skill_tracker))
 	if settings.tracking_skills == 'off' then return end
 
+	windower.add_to_chat(100, 'RERENDERING SKILL SCREEN: '..debug.traceback())
 	local contents = L{}
 	--contents:append(string.padcenter('== Skill Caps ==', SKILL_WIDTH_TOTAL))
 	if z_player.mjlvl == nil then
 		windower.add_to_chat(17, ' -- about to crash! '..debug.traceback())
 	end
 
-	local header = '=== Skill Caps lv'..z_player.mjlvl..' '..z_player.mjtla..' ==='
+	local header = '=== Skill Caps lv'..z_player.effective_level..' '..z_player.mjtla..' ==='
 	-- '== Skill Caps =='
 	contents:append(string.padcenter(header, SKILL_WIDTH_TOTAL))
 	--contents:append(header)
@@ -289,9 +300,46 @@ function textbox_render_page_update(data)
 	return needs_update
 end
 
+local ANGLE_DIRECTIONS = { 
+	'E', 'ENE', 'NE', 'NNE', 
+	'N', 'NNW', 'NW', 'WNW', 
+	'W', 'WSW', 'SW', 'SSW', 
+	'S', 'SSE', 'SE', 'ESE',  }
+
+function rads_to_degs(rads)
+	return 360.0 * rads / (2 * math.pi)
+end
+
+local MESSAGE_SPAM_PREVENTER = 0
+local TWOPI = 2.0 * math.pi
+local NEGSIXTEENTHPI = -math.pi / 16.0
+function getRelativeDirection(px, py, tx, ty)
+	-- tan(angle) = y / x    -->  arctan(tan(angle)) = arctan(y/x)   -->  angle = arctan(y/x)
+	-- output is unexpected if not normalized, so compute length and divide
+	local dx = tx - px
+	local dy = ty - py
+	local len = math.sqrt(dx*dx + dy*dy)
+	local angle2 = math.atan2(dy/len, dx/len)
+	-- (0,+2pi) -> [1,16] - and shift it a half an angle category... (prevent overflow with carfeful comparison)
+	if angle2 < NEGSIXTEENTHPI then angle2 = angle2 + 2*math.pi end
+	angle2 = 8.0*angle2/math.pi + 1.5
+	local direction = math.floor(angle2)
+
+	local curtime = os.time()
+	if direction < 1 or direction > 16 then
+		if curtime > MESSAGE_SPAM_PREVENTER then
+			windower.add_to_chat(100, string.format('direction=%d  -- angle2r=%1.3f -- angle2d=%3.1f', direction, angle2, rads_to_degs(angle2) ) )
+			MESSAGE_SPAM_PREVENTER = curtime
+		end
+		return string.format('%1.3f %d %3.1f', angle2, direction, rads_to_degs(angle2))
+	end
+	return ANGLE_DIRECTIONS[direction], len
+end
+
 function textbox_render_tracker_update(data)
 	if table.size(z_mob_tracker) == 0 then return false end
 
+	local player_data = windower.ffxi.get_mob_by_target('me')
 	local needs_update = false
 	local curtime = os.time()
 	local removemobs = {}
@@ -313,13 +361,19 @@ function textbox_render_tracker_update(data)
 		elseif z_mob_tracker[mobid].phnm ~= 0 and z_phnm_spawn[z_mob_tracker[mobid].phnm].time_last_kill < curtime then
 			local mob_data = windower.ffxi.get_mob_by_id(mobid)
 			if mob_data ~= nil and mob_data.valid_target then
+				z_mob_tracker[mobid].x = mob_data.x
+				z_mob_tracker[mobid].y = mob_data.y
 				if z_mob_tracker[mobid].name == 'Unknown' then
 					z_mob_tracker[mobid].name = mob_data.name
 					needs_update = true
 				end
-				local distance = mob_data.distance
-				local distancestr = string.format('%2.1fy', math.sqrt(distance))
-				data['mobt'..mobid] = '\\cs(128,255,128)alive\\cr '..distancestr
+				local reldir, distance = getRelativeDirection(player_data.x, player_data.y, mob_data.x, mob_data.y)
+				local distancestr = string.padleft(string.format('%2.1fy', distance), 5)
+				data['mobt'..mobid] = '\\cs(128,255,128)'..distancestr..' '..reldir..'\\cr'
+			elseif z_mob_tracker[mobid].x ~= nil then
+				local reldir, distance = getRelativeDirection(player_data.x, player_data.y, z_mob_tracker[mobid].x, z_mob_tracker[mobid].y)
+				local distancestr = string.padleft(string.format('%2.1fy', distance), 5)
+				data['mobt'..mobid] = '\\cs(128,255,128)'..distancestr..' '..reldir..'\\cr'
 			else
 				data['mobt'..mobid] = 'unknown'
 			end
@@ -330,9 +384,15 @@ function textbox_render_tracker_update(data)
 		elseif z_mob_tracker[mobid].is_nm then
 			local mob_data = windower.ffxi.get_mob_by_id(mobid)
 			if mob_data ~= nil and mob_data.valid_target then
-				local distance = mob_data.distance
-				local distancestr = string.format('%2.1fy', math.sqrt(distance))
-				data['mobt'..mobid] = '\\cs(128,255,128)!ALIVE!\\cr '..distancestr
+				z_mob_tracker[mobid].x = mob_data.x
+				z_mob_tracker[mobid].y = mob_data.y
+				local reldir, distance = getRelativeDirection(player_data.x, player_data.y, mob_data.x, mob_data.y)
+				local distancestr = string.padleft(string.format('%2.1fy', distance), 5)
+				data['mobt'..mobid] = '\\cs(128,255,128)'..distancestr..' '..reldir..'\\cr'
+			elseif z_mob_tracker[mobid].x ~= nil then
+				local reldir, distance = getRelativeDirection(player_data.x, player_data.y, z_mob_tracker[mobid].x, z_mob_tracker[mobid].y)
+				local distancestr = string.padleft(string.format('%2.1fy', distance), 5)
+				data['mobt'..mobid] = '\\cs(128,255,128)'..distancestr..' '..reldir..'\\cr'
 			else
 				data['mobt'..mobid] = '\\cs(128,128,128)not found\\cr '
 			end
@@ -487,6 +547,7 @@ function recalculateRangedDelay(gear)
 	end
 end
 
+-- TODO: can you have weapons that you have no skill in? will tracker crashz0r?
 function addSkillTrackCategory(skillid)
 	if skillid == nil or skillid == 0 then return end
 	local key = SKILL_KEYS[skillid]
@@ -522,18 +583,22 @@ function recalculateWeaponry(just_weapons)
 			end
 				
 			mainwep_skillid = res.items[mainweapon_info.id].skill
-			-- if main hand exists, maybe offhand? attempt to pull sub weapon information
-			if gear.sub > 0 then 
-				local subweapon_info = windower.ffxi.get_items(gear.sub_bag, gear.sub)
-				if subweapon_info ~= nil then
-					subwep_skillid = res.items[subweapon_info.id].skill
-				end
-			end
 		else
 			windower.add_to_chat(17, 'Main hand contained index='..gear.main..' but weapon_info could not be found.')
 		end
 	elseif JOB_WEAPON_RATINGS[z_player.mjtla]['Hand-to-Hand'] ~= nil then -- no main weapon, h2h skill?
 		mainwep_skillid = SKILL_IDS['Hand-to-Hand']
+	end
+
+	-- if main hand exists, offhand may be a duplicate. this may also be a shield.
+	if gear.sub > 0 then 
+		local subweapon_info = windower.ffxi.get_items(gear.sub_bag, gear.sub)
+		if subweapon_info ~= nil then
+			subwep_skillid = res.items[subweapon_info.id].skill
+			if subwep_skillid == nil and res.items[subweapon_info.id].shield_size ~= nil then
+				subwep_skillid = SKILL_IDS['Shield']
+			end
+		end
 	end
 
 	-- computer ranged weapon's ammunition and skill mode
@@ -561,15 +626,15 @@ function recalculateWeaponry(just_weapons)
 	end
 
 	windower.add_to_chat(100, 'Recalculating weaponry...')
+	for i,skillid in ipairs(z_skill_tracker_weapon_order) do
+		z_skill_tracker[skillid].tracking = false
+	end
+	addSkillTrackCategory(mainwep_skillid)
+	addSkillTrackCategory(subwep_skillid)
+	addSkillTrackCategory(z_ranged_skilltype)
 	if any_changes then
 		windower.add_to_chat(17, ' -- AutoSkill: detected some changes.')
 
-		for i,skillid in ipairs(z_skill_tracker_weapon_order) do
-			z_skill_tracker[skillid].tracking = false
-		end
-		addSkillTrackCategory(mainwep_skillid)
-		addSkillTrackCategory(subwep_skillid)
-		addSkillTrackCategory(z_ranged_skilltype)
 		z_skill_tracker_weapon_order = {}
 		if mainwep_skillid > 0 then table.insert(z_skill_tracker_weapon_order, mainwep_skillid) end
 		if subwep_skillid > 0 then table.insert(z_skill_tracker_weapon_order, subwep_skillid) end
@@ -612,7 +677,8 @@ end
 function recalculateVitals()
 	windower.add_to_chat(100, ' =========== Recalculating vitals.')
 	local player = windower.ffxi.get_player()
-	
+	z_player.obtains_msg = player.name..' obtains a'
+	z_player.obtains_msg_len = z_player.obtains_msg:len()
 	z_player.hp    = player.vitals['hp']
 	z_player.maxhp = player.vitals['max_hp']
 	z_player.mp    = player.vitals['mp']
@@ -855,24 +921,64 @@ function verboseActionMessage(actor_id, target_id, actor_index, target_index, me
 	if param_1 == nil then param_1 = 'nil' end
 	if param_2 == nil then param_2 = 'nil' end
 	if param_3 == nil then param_3 = 'nil' end
-	windower.add_to_chat(17, 'actor_id='..actor_id..' target_id='..target_id..'  target_index='..target_index..' message_id='..message_id..' param1='..param_1..' param2='..param_2..' param3='..param_3)
+	windower.add_to_chat(17, 'VERBOSE: action msg -- actor_id='..actor_id..' target_id='..target_id..'  target_index='..target_index..' message_id='..message_id..' param1='..param_1..' param2='..param_2..' param3='..param_3)
 end
 
 local z_candidate_mob_page_entries = {}
 local z_reading_mob_kill_list = false
 on_incomingtext_function = function (original, modified, orig_mode, mod_mode, blocked)
-	--if original:find('training regime register') ~= nil then
-	--	local fulldata = {original:byte(1, original:len())}
-	--	local strdata = ''
-	--	for i,v in ipairs(fulldata) do 
-	--		strdata = strdata..v..' '
-	--	end
-	--	windower.add_to_chat(17, 'found, strlen is '..original:len()..' om='..orig_mode..' mm='..mod_mode..' -- and the codes are: '..strdata)
-	--	return false
-	--end
+	--if original:find('You find') ~= nil then
+	if original:find('knot quipu') ~= nil then
+		local fulldata = {original:byte(1, original:len())}
+		local strdata = ''
+		for i,v in ipairs(fulldata) do 
+			strdata = strdata..v..' '
+		end
+		windower.add_to_chat(17, 'found, strlen is '..original:len()..' om='..orig_mode..' mm='..mod_mode..' -- and the codes are: '..strdata)
+		return false
+	end
 	
 	local is_page_finalized = false
-	if orig_mode == 141 then
+	if orig_mode == 121 then 
+		-- "You find a bird egg on the Zu." 
+		-- "You throw away a bird egg."
+		local color_padding = 2
+		if z_player.finds_msg == original:sub(1 + color_padding,z_player.finds_msg_len + color_padding) then
+			-- adjust for 'a CCitem' or 'an CCitem' (color code)
+			local item_start_index = original:find(' ', color_padding + z_player.finds_msg_len) + 3
+			local item_stop_index = original:find(' on the ', item_start_index + 3) - 3
+			local drop_name_guess = original:sub(item_start_index, item_stop_index)
+			--windower.add_to_chat(100, 'my best guess at the You find item name="'..drop_name_guess..'" start='..item_start_index..' stop='..item_stop_index)
+			for i,filter in ipairs(z_autodrop_filter_items) do
+				if drop_name_guess:find(filter) ~= nil then
+					if os.time() >= z_autodrop_filter_time then
+						windower.add_to_chat(100, 'out of bounds of the drop timer window, but you find in the filter list! blocking msg about '..drop_name_guess)
+					end
+					return true -- block this message
+				end
+			end
+		elseif z_player.throws_msg == original:sub(1 + color_padding, z_player.throws_msg_len + color_padding) then
+			-- adjust for 'a CCitem' or 'an CCitem' (color code)
+			modified = modified:gsub('You throw away a', 'You find and throw away a')
+			return modified, newmode
+		end
+	elseif orig_mode == 127 then -- "PLAYERNAME obtains a bird egg."
+		local color_padding = 2
+		if z_player.obtains_msg == original:sub(1 + color_padding,z_player.obtains_msg_len + color_padding) then
+			local item_start_index = original:find(' ', color_padding + z_player.obtains_msg_len) + 3
+			local item_stop_index = original:len() - 5
+			local drop_name_guess = original:sub(item_start_index, item_stop_index)
+			--windower.add_to_chat(100, 'my best guess at the Frezer obtained item name="'..drop_name_guess..'" start='..item_start_index..' stop='..item_stop_index)
+			for i,filter in ipairs(z_autodrop_filter_items) do
+				if drop_name_guess:find(filter) ~= nil then
+					if os.time() >= z_autodrop_filter_time then
+						windower.add_to_chat(100, 'oob drop timer, but found a match for the obtained drop in the filter list! blocking msg about '..drop_name_guess)
+					end
+					return true -- block this message
+				end
+			end
+		end
+	elseif orig_mode == 141 then
 		local original_length = original:len()
 		if original_length == 86 and original:sub(3,84) == "Changing your job will result in the cancellation of your current training regime." then
 			-- clear the book page (not, might be a color code in here?)
@@ -975,13 +1081,13 @@ on_incomingtext_function = function (original, modified, orig_mode, mod_mode, bl
 		textbox_reinitialize_function(z_textbox_misc, settings)
 		z_candidate_mob_page_entries = {}
 	end
---
---	if z_super_verbose and original:sub(1, 7) ~= 'VERBOSE' then
---		local blockstr = blocked and 'true' or 'false'
---		windower.add_to_chat(17, 'VERBOSE: om='..orig_mode..' mm='..mod_mode..' block='..blockstr.. ' -- orig: "'..original..'"')
---		return true
---	end
---	return false
+
+	if z_super_verbose and original:sub(1, 7) ~= 'VERBOSE' then
+		local blockstr = blocked and 'true' or 'false'
+		windower.add_to_chat(17, 'VERBOSE: om='..orig_mode..' mm='..mod_mode..' block='..blockstr.. ' -- orig: "'..original..'"')
+		return true
+	end
+	return -- no return let's the message pass
 end
 windower.register_event('incoming text', on_incomingtext_function)
 
@@ -997,6 +1103,10 @@ z_message_to_function_map[5] = function (actor_id, target_id, actor_index, targe
 end
 
 function loadNMsettingsToTracker(nm_id)
+	if type(nm_id) == 'string' then
+		windower.add_to_chat(100, 'nm_id in loadNMsettingsToTracker was string, expecting integer: '..nm_id)
+		nm_id = tonumber(nm_id)
+	end
 	local nm_name = z_phnm_spawn[nm_id].name
 	local nm_key = string.toluakey(nm_name)
 	if settings.nms[nm_key] == nil then -- no entries found, create a new one
@@ -1014,7 +1124,11 @@ function loadNMsettingsToTracker(nm_id)
 			end
 		end
 		if z_mob_tracker[nm_id].respawn == 0 then
-			z_mob_tracker[nm_id].respawn = settings.nms[nm_key].time_last_kill
+			--windower.add_to_chat(100, 'wtfa: '..nm_key)
+			--windower.add_to_chat(100, 'wtfb: '..nm_id)
+			--windower.add_to_chat(100, 'wtfc: '..settings.nms[nm_key].time_last_kill)
+			--windower.add_to_chat(100, 'wtfd: '..z_mob_tracker[nm_id].respawn_time)
+			z_mob_tracker[nm_id].respawn = settings.nms[nm_key].time_last_kill + z_mob_tracker[nm_id].respawn_time + MOB_TRACKER_FADE_TIME
 		end
 	end
 	return nm_key
@@ -1065,20 +1179,42 @@ function beginTrackingMob(mobid, curzone)
 			z_phnm_spawn[mobid].probability = 1
 			z_phnm_spawn[mobid].phs_currently_dead = 0
 			z_phnm_spawn[mobid].total_phs = 0
+			-- check for duplicate NMs with the same name e.g. Leaping Lizzy has two IDs in the same zone
+			local alter_egos = {}
+			for otherid,otherdata in pairs(z_mobdata.nms[curzone]) do
+				if otherid ~= mobid and otherdata.name == z_phnm_spawn[mobid].name then
+					if z_phnm_spawn[otherid] == nil then
+						table.insert(alter_egos, otherid)
+						-- TODO: does this link the references, or does this make a copy?
+						z_phnm_spawn[otherid] = z_phnm_spawn[mobid]
+						beginTrackingMob(otherid, curzone)
+					end
+				end
+			end
 			-- update with any settngs we can
 			z_phnm_spawn[mobid].key = loadNMsettingsToTracker(mobid)
 			if z_phnm_spawn[mobid].time_last_kill > 0 then
-				z_mob_tracker[mobid].respawn = z_mob_tracker[target_id].respawn_time + MOB_TRACKER_FADE_TIME
+				z_mob_tracker[mobid].respawn = z_phnm_spawn[mobid].time_last_kill + z_mob_tracker[mobid].respawn_time + MOB_TRACKER_FADE_TIME
+				for i,otherid in ipairs(alter_egos) do
+					z_mob_tracker[mobid].otherid = z_phnm_spawn[mobid].time_last_kill + z_mob_tracker[mobid].respawn_time + MOB_TRACKER_FADE_TIME
+				end
 			end
 			-- track self 
 			table.insert(z_mob_tracker_order, mobid)
 			-- and all related placeholders
-			if z_mob_tracker[mobid].respawn < os.time() then
+			if os.time() > z_mob_tracker[mobid].respawn then
 				for phid,phdata in npairs(z_mobdata.phs[curzone]) do
 					if mobid == phdata.related_nm then
 						z_phnm_spawn[mobid].total_phs = z_phnm_spawn[mobid].total_phs + 1
 						beginTrackingMob(phid, curzone)
 						table.insert(z_mob_tracker_order, phid)
+					end
+					for i,otherid in ipairs(alter_egos) do
+						if otherid == phdata.related_nm then
+							z_phnm_spawn[mobid].total_phs = z_phnm_spawn[mobid].total_phs + 1
+							beginTrackingMob(phid, curzone)
+							table.insert(z_mob_tracker_order, phid)
+						end
 					end
 				end
 			end
@@ -1094,7 +1230,7 @@ z_message_to_function_map[6] = function (actor_id, target_id, actor_index, targe
 	if not z_track_mode then return end
 	z_mob_tracker_kills = z_mob_tracker_kills + 1
 
-	--z_mob_tracker[target_id].last_death = os.time()
+	--z_mob_tracker[target_id].last_death = curtime
 	local curzone = res.zones[windower.ffxi.get_info().zone].search
 	beginTrackingMob(target_id, curzone)
 
@@ -1107,8 +1243,9 @@ z_message_to_function_map[6] = function (actor_id, target_id, actor_index, targe
 		-- TODO: scrape the placeholder chance
 		z_phnm_spawn[nm_id].probability = z_phnm_spawn[nm_id].probability * 0.95
 		-- update the persistent record of this NM
-		if curtime > settings.nms[z_phnm_spawn[nm_id].key].time_last_kill then
-			settings.nms[z_phnm_spawn[nm_id].key].ph_kills = settings.nms[z_phnm_spawn[nm_id].key].ph_kills + 1
+		if curtime > z_mob_tracker[nm_id].respawn then
+			local nm_key = z_phnm_spawn[nm_id].key
+			settings.nms[nm_key].ph_kills = settings.nms[nm_key].ph_kills + 1
 			settings:save()
 		end
 	end
@@ -1120,7 +1257,7 @@ z_message_to_function_map[6] = function (actor_id, target_id, actor_index, targe
 		z_phnm_spawn[target_id].time_last_kill = curtime
 		-- update the persistent record of this NM
 		local nm_key = z_phnm_spawn[target_id].key
-		settings.nms[nm_key].time_last_kill = z_phnm_spawn[nm_key].time_last_kill
+		settings.nms[nm_key].time_last_kill = z_phnm_spawn[target_id].time_last_kill
 		settings.nms[nm_key].ph_kills = 0
 		settings:save()
 		-- stop tracking the placeholders
@@ -1141,7 +1278,7 @@ z_message_to_function_map[6] = function (actor_id, target_id, actor_index, targe
 			end
 		end
 	end
-	z_mob_tracker[target_id].respawn = os.time() + z_mob_tracker[target_id].respawn_time + MOB_TRACKER_FADE_TIME
+	z_mob_tracker[target_id].respawn = curtime + z_mob_tracker[target_id].respawn_time + MOB_TRACKER_FADE_TIME
 	local insert_at = 0
 	local old_index = 0
 	for i,mobid in ipairs(z_mob_tracker_order) do
@@ -1483,6 +1620,70 @@ function trySomeAction(category)
 	end
 end
 
+function autoDropOrKeep(mode, args)
+	if mode ~= 'keep' and mode ~= 'drop' then return end
+	if args == nil then return end
+	local item_id = tonumber(args)
+	local item_data = nil
+	if item_id ~= nil then
+		item_data = res.items[item_id]
+		if item_data == nil then
+			windower.add_to_chat(100, ' -- AutoSkill: item with ID#'..itemid..' could not be found.')
+			return
+		end
+	else
+		local total_searched = 0
+		local candidate_id = {}
+		local search_name = args:lower()
+		local results = 0
+		for i,idata in pairs(res.items) do
+			local en = idata.en:lower()
+			local enl = idata.enl:lower()
+			if en:find(search_name) ~= nil or enl:find(search_name) ~= nil then
+				table.insert(candidate_id, i)
+				results = results + 1
+				if results >= 10 then break end
+			end
+			total_searched = total_searched + 1
+		end
+		if results == 0 then
+			windower.add_to_chat(17, ' -- Item with name="'..search_name..'" was not found in '..total_searched..' items searched.')
+			return
+		elseif results > 1 then
+			windower.add_to_chat(17, ' -- Too many results. Item candidates found: '..results)
+			for i,id in ipairs(candidate_id) do
+				windower.add_to_chat(17, '  id='..id..' en='..res.items[id].en..' -- enl='..res.items[id].enl)
+			end
+			if results >= 10 then windower.add_to_chat(17, ' -- Note: Too many results. (Stopped after the first ten.)') end
+			return
+		end
+		item_id = candidate_id[1]
+		item_data = res.items[item_id]
+	end
+
+	settings.autodrop['id'..item_id] = mode
+	settings:save()
+	windower.add_to_chat(100, ' -- AutoSkill: item '..item_data.en..' ('..item_id..') will now alway '..mode:upper())
+end
+
+windower.register_event('add item', function(bag, index, id, count)
+	if z_pause_autodrop then return end
+	if bag ~= 0 then return end
+	local key = 'id'..id
+	if settings.autodrop[key] == nil or settings.autodrop[key] == 'keep' then 
+		return
+	else
+		local curtime = os.time()
+		if curtime > z_autodrop_filter_time then
+			z_autodrop_filter_items = {}
+		end
+		table.insert(z_autodrop_filter_items, res.items[id].enl)
+		z_autodrop_filter_time = curtime + 2
+		windower.ffxi.drop_item(index, count)
+		windower.add_to_chat(100, 'I autodropped a thing! I tried to drop ItemID='..id..' '..res.items[id].en)
+	end
+end)
+
 local function equipAmmoFromInventory()
 	for invindex,itemdata in pairs(windower.ffxi.get_items(z_ammo_bag)) do
 		if type(itemdata) == 'table' then
@@ -1640,8 +1841,8 @@ local function displayStats()
 
 	local zonephcount, zonenmcount = 0, 0
 	local zonestr = res.zones[windower.ffxi.get_info().zone].search
-	if table.isnotempty(z_mobdata.phs[zonestr]) then zonephcount = table.size(settings.mob_ids.placeholders[zoneidstr]) end
-	if table.isnotempty(z_mobdata.nms[zonestr]) then zonenmcount = table.size(settings.mob_ids.nms[zoneidstr]) end
+	zonephcount = table.size(settings.mob_ids.placeholders[zoneidstr])
+	zonenmcount = table.size(settings.mob_ids.nms[zoneidstr])
 	windower.add_to_chat(100, 'Current zone has '..zonenmcount..' NMs recorded and '..zonephcount..' placeholders.')
 end
 
@@ -1656,6 +1857,10 @@ AutoSkill - Commands listing:
 	scan [period] - time in seconds to scan, [5+]. If period is "off", will disable scanning.
 	addnm  - uses player <t> to record NM ID. Will scan for it in the future.
 	addph  - Marks a mob as a placeholder. Will message the player on selection.
+	----- Drop Commands ---------------------------
+	drop [item] - either the item name or item ID. will auto drop from now on, but not drop what you have
+	keep [item] - will undo a drop command, will not auto-drop that item permanently
+	pausedrop   - temporarily suspend all auto-drops. (does not persist between addon reloads)
 	----- Text Commands ---------------------------
     buffs  - Displays current player's active buff IDs
     stats  - Displays all recorded stats since last loaded
@@ -1768,6 +1973,14 @@ windower.register_event('addon command',function (...)
 			settings.sound_alert_toggle = 'off'
 			settings:save()
 			windower.add_to_chat(17, ' -- AutoSkill: Disabled all sound notification.')
+		end
+	elseif param[1] == 'pausedrop' then
+		z_pause_autodrop = not z_pause_autodrop
+	elseif param[1] == 'drop' or param[1] == 'keep' then
+		if paramcount == 1 then
+			windower.add_to_chat(17, ' -- AutoSkill: specify the item name or id# that you want to always drop. Note: Please be careful with this.')
+		else
+			autoDropOrKeep(param[1], paramtwoall)
 		end
 	elseif param[1] == 'skills' then
 		if paramcount == 1 then

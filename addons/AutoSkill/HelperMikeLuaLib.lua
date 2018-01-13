@@ -38,6 +38,7 @@ function table.tostring(tbl)
 end
 
 function table.size(tbl)
+	if tbl == nil then print('called my own size function on a nil element:'..windower.add_to_chat(100, 'RERENDERING SKILL SCREEN: '..debug.traceback())) end
 	local count = 0
 	for k,v in pairs(tbl) do count = count + 1 end
 	return count
@@ -50,8 +51,7 @@ function table.isempty(tbl)
 end
 
 function table.isnotempty(tbl)
-	if table.isempty(tbl) then return false end
-	return true
+	return (not table.isempty(tbl))
 end
 --function string:padleft(max_len)
 --	local len = self:len()
