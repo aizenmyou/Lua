@@ -46,6 +46,7 @@ require('HelperSkillCapData')
 require('HelperSkillCapFunctions')
 
 local MAX_LENGTH = 15
+local MAX_PAGES_TO_TRACK = 6
 z_mobdata = {}
 z_mobdata.nms = {}
 z_mobdata.phs = {}
@@ -57,6 +58,19 @@ require('HelperMobData')
 require('HelperTracker')
 
 local z_page_tracker = {}
+function clearPageTracker(settings_data)
+	z_page_tracker = {}
+	settings_data.page_tracker = {}
+	for i=1,MAX_PAGES_TO_TRACK,1 do
+		local key = 'page'..i
+		settings_data.page_tracker[key] = {}
+        settings_data.page_tracker[key].name      = 'Unknown'
+		settings_data.page_tracker[key].is_family = false
+        settings_data.page_tracker[key].needed    = 0
+        settings_data.page_tracker[key].progress  = 0
+	end
+end
+
 local z_mob_tracker = {}
 local z_mob_tracker_order = {}
 local z_mob_tracker_kills = 0
@@ -89,7 +103,7 @@ default_settings.sound_files.book_complete['e']  = 'book_finish_e.wav'
 default_settings.sound_files.book_complete['f']  = 'book_finish_f.wav'
 default_settings.sound_files.book_complete['fs'] = 'book_finish_fsharp.wav'
 default_settings.sound_files.book_complete['g']  = 'book_finish_g.wav'
-default_settings.page_tracker = {}
+clearPageTracker(default_settings)
 -- TODO: implement persistent NM last kill seen measurements
 -- default_settings.mob_tracker = {}
 default_settings.play_sounds = 'on'
@@ -148,7 +162,30 @@ settings = config.load(default_settings)
 local z_textbox_misc = texts.new(settings.display, settings)
 local z_textbox_skills = texts.new(settings.skilldisplay, settings)
 local z_default_color = ''
+
+local WINDOW_PADDING = 50
+function is_within_bounds(display)
+	local xres = windower.get_windower_settings().x_res
+	local yres = windower.get_windower_settings().y_res
+	local need_relocate = false
+	if display.pos.x < 0 or display.pos.x + WINDOW_PADDING > xres then
+		display.pos.x = xres/2
+		need_relocate = true
+	end
+	if display.pos.y < 0 or display.pos.y + WINDOW_PADDING > yres then
+		display.pos.y = yres/2
+		need_relocate = true
+	end
+	return need_relocate
+end
+
 config.register(settings, function ()
+	if not is_within_bounds(settings.display) then
+		z_textbox_misc:pos(settings.display.pos.x, settings.display.pos.y)
+	end
+	if not is_within_bounds(settings.skilldisplay) then
+		z_textbox_skills:pos(settings.skilldisplay.pos.x, settings.skilldisplay.pos.y)
+	end
 	if settings.nm_scan_repeat ~= 0 and settings.nm_scan_repeat < 5 then settings.nm_scan_repeat = 5 end
 	if settings.play_sounds ~= 'on' then settings.play_sounds = 'off' end
 	if settings.tracking_skills ~= 'on' then 
@@ -165,20 +202,15 @@ config.register(settings, function ()
 	if settings.page_tracker ~= nil and table.size(settings.page_tracker) > 0 then
 		z_page_tracker = {}
 		for index,pagedata in pairs(settings.page_tracker) do
-			local i = tonumber(index)
-			z_page_tracker[i] = {}
+			local i = tonumber(string.sub(index,5)) -- 'page3'
 			if pagedata.name == nil then 
 				windower.add_to_chat(17, ' -- Were looping on page_tracker yet name was nil, dump: '..table.tostring(pagedata))
 			end
-
-			z_page_tracker[i].name = string.padright(pagedata.name, MAX_LENGTH)
-			z_page_tracker[i].progress = tonumber(pagedata.progress)
-			z_page_tracker[i].needed = tonumber(pagedata.needed)
-			--if pagedata.is_family == 'true' then
-			--	z_page_tracker[i].is_family = true
-			--else
-			--	z_page_tracker[i].is_family = false
-			--end
+			if pagedata.needed == 0 then break end
+			z_page_tracker[i] = {}
+			z_page_tracker[i].name      = string.padright(pagedata.name, MAX_LENGTH)
+			z_page_tracker[i].progress  = pagedata.progress
+			z_page_tracker[i].needed    = pagedata.needed
 			z_page_tracker[i].is_family = pagedata.is_family
 		end
 		textbox_reinitialize_function(z_textbox_misc, settings)
@@ -189,7 +221,7 @@ textbox_reinitialize_function = function(textbox, settings)
 	local contents = L{}
 	local elements = 0
 	contents:append(string.padcenter('== AutoSkill ==', MAX_LENGTH+5))
-	if table.size(z_page_tracker) > 0 then
+	if table.getn(z_page_tracker) > 0 then
 		elements = elements + 1
 		contents:append('Page status:')
 		for i, pagedata in ipairs(z_page_tracker) do
@@ -982,8 +1014,7 @@ on_incomingtext_function = function (original, modified, orig_mode, mod_mode, bl
 		local original_length = original:len()
 		if original_length == 86 and original:sub(3,84) == "Changing your job will result in the cancellation of your current training regime." then
 			-- clear the book page (not, might be a color code in here?)
-			z_page_tracker = {}
-			settings.page_tracker = {}
+			clearPageTracker(settings)
 			settings:save()
 			textbox_reinitialize_function(z_textbox_misc, settings)
 		end
@@ -1055,25 +1086,23 @@ on_incomingtext_function = function (original, modified, orig_mode, mod_mode, bl
 		end
 	end
 
-	if is_page_finalized and table.getn(z_candidate_mob_page_entries) > 0 then
-		settings.page_tracker = {}
-		z_page_tracker = {}
+	local candidate_entry_count = table.getn(z_candidate_mob_page_entries)
+	if is_page_finalized and candidate_entry_count > 0 then
+		clearPageTracker(settings)
 		for i, pagedata in ipairs(z_candidate_mob_page_entries) do
+			if i > MAX_PAGES_TO_TRACK then
+				windower.add_to_chat(100, '!!!ERROR!!! AutoSkill expected no more than '..MAX_PAGES_TO_TRACK..' entries, yet there were '..tablecandidate_entry_count)
+				break
+			end
 			z_page_tracker[i] = {}
-			z_page_tracker[i].name = string.padright(pagedata.name, MAX_LENGTH)
-			z_page_tracker[i].progress = pagedata.progress
-			z_page_tracker[i].needed = pagedata.needed
+			z_page_tracker[i].name      = string.padright(pagedata.name, MAX_LENGTH)
+			z_page_tracker[i].progress  = pagedata.progress
+			z_page_tracker[i].needed    = pagedata.needed
 			z_page_tracker[i].is_family = pagedata.is_family
-			local index = tostring(i)
-			settings.page_tracker[index] = {}
-			settings.page_tracker[index].name = pagedata.name
-			settings.page_tracker[index].progress = tonumber(pagedata.progress)
-			settings.page_tracker[index].needed = tonumber(pagedata.needed)
-			--if pagedata.is_family then
-			--	settings.page_tracker[index].is_family = 'true'
-			--else
-			--	settings.page_tracker[index].is_family = 'false'
-			--end
+			local index = 'page'..i
+			settings.page_tracker[index].name      = pagedata.name
+			settings.page_tracker[index].progress  = tonumber(pagedata.progress)
+			settings.page_tracker[index].needed    = tonumber(pagedata.needed)
 			settings.page_tracker[index].is_family = pagedata.is_family
 		end
 		settings:save()
@@ -1384,12 +1413,16 @@ end
 
 -- You defeated a designated target. (Progress: <number>/<number>)
 z_message_to_function_map[558] = function (actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
-	if z_most_recent_kill_id ~= 0 then
+	if z_most_recent_kill_id ~= 0 and z_most_recent_kill_time + 2 >= os.time() then
 		local mob_data = windower.ffxi.get_mob_by_id(z_most_recent_kill_id)
 		local latest_kill_index = 0
 		for i,pagedata in ipairs(z_page_tracker) do
-			if pagedata.name:len() > mob_data.name:len() and pagedata.name:sub(1, mob_data.name:len()) == mob_data.name then
-				-- something like Werebat instead of Werebats, this was close enough
+			if pagedata.name == mob_data.name then
+				-- exact match
+				latest_kill_index = i
+				break
+			elseif pagedata.name:len() > mob_data.name:len() and pagedata.name:sub(1, mob_data.name:len()) == mob_data.name then
+				-- something like you killed a Werebat instead of 5 Werebats, this was close enough
 				latest_kill_index = i
 				break
 			end
@@ -1402,25 +1435,24 @@ z_message_to_function_map[558] = function (actor_id, target_id, actor_index, tar
 		end
 		if latest_kill_index == 0 then
 			-- still couldn't find it, start a new entry
-			local page_entry = {}
-			page_entry.name = mob_data.name
-			page_entry.progress = param_1
-			page_entry.needed = param_2
-			page_entry.is_family = false
-			table.insert(z_page_tracker, page_entry)
+			if table.getn(z_page_tracker) < MAX_PAGES_TO_TRACK then
+				local page_entry = {}
+				page_entry.name      = string.padright(mob_data.name, MAX_LENGTH)
+				page_entry.progress  = param_1
+				page_entry.needed    = param_2
+				page_entry.is_family = false
+				table.insert(z_page_tracker, page_entry)
 
-			local index = tostring(table.getn(z_page_tracker))
-			if settings.page_tracker[index] == nil then
-				settings.page_tracker[index] = {}
+				local index = 'page'..table.getn(z_page_tracker)
+				settings.page_tracker[index].name      = mob_data.name
+				settings.page_tracker[index].progress  = param_1
+				settings.page_tracker[index].needed    = param_2
+				settings.page_tracker[index].is_family = false
+				textbox_reinitialize_function(z_textbox_misc, settings)
 			end
-			settings.page_tracker[index].name = page_entry.name
-			settings.page_tracker[index].progress = page_entry.progress
-			settings.page_tracker[index].needed = page_entry.needed
-			settings.page_tracker[index].is_family = page_entry.is_family
-			textbox_reinitialize_function(z_textbox_misc, settings)
 		else
 			z_page_tracker[latest_kill_index].progress = param_1
-			settings.page_tracker[tostring(latest_kill_index)].progress = param_1
+			settings.page_tracker['page'..latest_kill_index].progress = param_1
 		end
 		settings:save()
 		z_most_recent_kill_id = 0
@@ -1428,8 +1460,8 @@ z_message_to_function_map[558] = function (actor_id, target_id, actor_index, tar
 	end
 	
 	-- We missed the kill message. Are we able to guess?
-	windower.add_to_chat(100, ' -- AutoSkill error: page completion message with no kill message?')
-	local candidate_index = ''
+	windower.add_to_chat(100, ' -- AutoSkill error: page requirement completion message with no kill message? (too far away?)')
+	local candidate_index = 0
 	local possible = 0
 	for i,pagedata in ipairs(z_page_tracker) do
 		if pagedata.needed == param_2 and pagedata.progress + 1 == param_1 then
@@ -1439,11 +1471,13 @@ z_message_to_function_map[558] = function (actor_id, target_id, actor_index, tar
 	end
 	if possible == 1 then
 		z_page_tracker[candidate_index].progress = param_1
+		settings.page_tracker['page'..candidate_index].progress = param_1
 		settings:save()
-	else
-		windower.add_to_chat(17, ' -- AutoSkill: unable to identify page kill index -- WE SHOULD BE SMARTER')
-		verboseActionMessage(actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
+		return
 	end
+
+	windower.add_to_chat(17, ' -- AutoSkill: unable to identify page kill index -- WE SHOULD BE SMARTER SOMEHOW - candidates='..possible..' -- examine dump: ')
+	verboseActionMessage(actor_id, target_id, actor_index, target_index, message_id, param_1, param_2, param_3)
 end
 
 -- You have successfully completed the training regime.
