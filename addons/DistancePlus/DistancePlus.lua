@@ -182,7 +182,7 @@ function check_job()
 end
 
 
-windower.register_event('prerender', function()
+prerender_function = function()
     local t = windower.ffxi.get_mob_by_target('t') or windower.ffxi.get_mob_by_target('st')
     local s = windower.ffxi.get_mob_by_target('me')
     if windower.ffxi.get_mob_by_target('pet') then
@@ -330,7 +330,7 @@ windower.register_event('prerender', function()
     end
      distance:visible(t ~= nil)
     height:visible(t ~= nil and showheight)
-end)
+end
 
 
 windower.register_event('addon command', function(command)
@@ -393,9 +393,17 @@ windower.register_event('addon command', function(command)
     end
 end)
 
+local prerender_regid = nil
+function do_register_prerender_only_once()
+    if prerender_regid == nil then
+        prerender_regid = windower.register_event('prerender', prerender_function)
+    end
+end
+
 windower.register_event('job change', function()
     coroutine.sleep(2) -- sleeping because jobchange too fast doesn't show new abilities
     self = windower.ffxi.get_player()
+    do_register_prerender_only_once()
     check_job()
     abilitylist = windower.ffxi.get_abilities().job_abilities
     abilities:visible(false)
@@ -407,6 +415,7 @@ windower.register_event('load', function()
     if windower.ffxi.get_player() then 
         coroutine.sleep(2) -- sleeping because jobchange too fast doesn't show new abilities
         self = windower.ffxi.get_player()
+        do_register_prerender_only_once()
         check_job()
         abilitylist = windower.ffxi.get_abilities().job_abilities
         displayabilities()
@@ -417,6 +426,7 @@ end)
 windower.register_event('login', function()
     coroutine.sleep(2) -- sleeping because jobchange too fast doesn't show new abilities
     self = windower.ffxi.get_player()
+    do_register_prerender_only_once()
     check_job()
     abilitylist = windower.ffxi.get_abilities().job_abilities
     displayabilities()
