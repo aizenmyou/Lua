@@ -134,7 +134,8 @@ approved_commands = S{
     'visible','v',
     'reload','r',
     'unload','u',
-    'help','h'
+    'help','h',
+	'save'
 }
 
 approved_commands = {
@@ -142,7 +143,8 @@ approved_commands = {
     visible={n=0},v={n=0},
     reload={n=0},r={n=0},
     unload={n=0},u={n=0},
-    help={n=0},h={n=0}
+    help={n=0},h={n=0},
+	save={n=0}
 }
 
 function load_images()

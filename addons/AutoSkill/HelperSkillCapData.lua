@@ -14,8 +14,12 @@ for i,craft in ipairs(CRAFTING_SKILLS) do
 		end
 	end
 end
+AUTOMATON_SKILLS = { 'Automaton Melee', 'Automaton Ranged', 'Automaton Magic' }
+AUTOMATON_SKILL_KEYS = { 'melee', 'ranged', 'magic' }
+
 -- descending order of skill listing
 CAP_ORDER = { 'A+', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D', 'E', 'F', 'G' }
+CAP_BY_VALUE = { 'H', 'G', 'F', 'E', 'D', 'C-', 'C', 'C+', 'B-', 'B', 'B+', 'A-', 'A+' }
 
 -- levels 60 and below have sparse data (ie A+=A-)
 RATING_SPARSE = {
@@ -37,9 +41,16 @@ SKILL_KEYS = {}
 SKILL_IDS = {}
 for i,skilldata in pairs(res.skills) do
 	if i > 0 then
-		local key = string.toluakey(skilldata.en)
-		local shortened = skilldata.en
-		shortened = shortened:gsub(' Magic', '')
+		local skillname = skilldata.en
+		-- seriously, the fuck, Windower?
+		if skillname == 'Automaton Archery' then skillname = 'Automaton Ranged' end
+		local key = string.toluakey(skillname)
+		local shortened = skillname
+		if shortened:find('Automaton') then
+			shortened = shortened:gsub('Automaton ', 'Auto ')
+		else -- don't turn Automaton Magic into just "Automaton"
+			shortened = shortened:gsub(' Magic', '')
+		end
 		shortened = shortened:gsub(' Instrument', '')
 		SKILL_KEYS[shortened] = key -- ['Hand-to-Hand'] -> 'hand_to_hand'
 		SKILL_KEYS[key] = shortened -- ['Hand-to-Hand'] -> 'hand_to_hand'
@@ -237,4 +248,11 @@ JOB_MAGIC_RATINGS = {
 	['SCH']={['Dark']='D', ['Divine']='D', ['Elemental']='D', ['Enfeebling']='D', ['Enhancing']='D', ['Healing']='D'},
 	['SMN']={['Summoning']='A-'},
 	['WHM']={['Divine']='A-', ['Enfeebling']='C', ['Enhancing']='C+', ['Healing']='A+'},
+}
+
+AUTOMATON_RATINGS = {
+	['HARLEQUIN'] ={['AutoMelee']='B-',['AutoMagic']='B-',['AutoRanged']='B-'},
+	['VALOREDGE'] ={['AutoMelee']='B+'},
+	['SHARPSHOT'] ={['AutoMelee']='C+',['AutoRanged']='B+'},
+	['STORMWAKER']={['AutoMelee']='C',['AutoMagic']='B+'},
 }

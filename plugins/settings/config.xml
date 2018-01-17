@@ -22,8 +22,6 @@
         <ClippingPlane>1</ClippingPlane>
         <!--Explicitly define the aspect ratio (x:y resolution), will be ignored if "AdjustAspectRatio" is enabled-->
         <AspectRatio>1.77777</AspectRatio>
-        <!--2 for 30 FPS, 1 for 60 FPS, 0 for uncapped frame rates-->
-        <FrameRateDivisor>1</FrameRateDivisor>
     </Freazer>
     <Zazzy>
         <!--The maximum map draw distance, 1 being the game's maximum setting-->
@@ -33,4 +31,44 @@
         <!--If set to true will enable footstep effects (both display and sound)-->
         <FootstepEffects>false</FootstepEffects>
     </Zazzy>
+    <Cocobuki>
+        <!--Only integer values, 3 being the lowest and 0 the highest-->
+        <AnimationFrameRate>3</AnimationFrameRate>
+        <!--The maximum map draw distance, 1 being the game's maximum setting-->
+        <ClippingPlane>0.1</ClippingPlane>
+        <!--If set to true will enable footstep effects (both display and sound)-->
+        <FootstepEffects>false</FootstepEffects>
+    </Cocobuki>
+    <Cocobygo>
+        <!--Only integer values, 3 being the lowest and 0 the highest-->
+        <AnimationFrameRate>3</AnimationFrameRate>
+        <!--The maximum map draw distance, 1 being the game's maximum setting-->
+        <ClippingPlane>0.1</ClippingPlane>
+        <!--If set to true will enable footstep effects (both display and sound)-->
+        <FootstepEffects>false</FootstepEffects>
+    </Cocobygo>
+    <Cocobani>
+        <!--Only integer values, 3 being the lowest and 0 the highest-->
+        <AnimationFrameRate>3</AnimationFrameRate>
+        <!--The maximum map draw distance, 1 being the game's maximum setting-->
+        <ClippingPlane>0.1</ClippingPlane>
+        <!--If set to true will enable footstep effects (both display and sound)-->
+        <FootstepEffects>false</FootstepEffects>
+    </Cocobani>
+    <Cocobezi>
+        <!--Only integer values, 3 being the lowest and 0 the highest-->
+        <AnimationFrameRate>3</AnimationFrameRate>
+        <!--The maximum map draw distance, 1 being the game's maximum setting-->
+        <ClippingPlane>0.1</ClippingPlane>
+        <!--If set to true will enable footstep effects (both display and sound)-->
+        <FootstepEffects>false</FootstepEffects>
+    </Cocobezi>
+    <Cocoboha>
+        <!--Only integer values, 3 being the lowest and 0 the highest-->
+        <AnimationFrameRate>3</AnimationFrameRate>
+        <!--The maximum map draw distance, 1 being the game's maximum setting-->
+        <ClippingPlane>0.1</ClippingPlane>
+        <!--If set to true will enable footstep effects (both display and sound)-->
+        <FootstepEffects>false</FootstepEffects>
+    </Cocoboha>
 </settings>

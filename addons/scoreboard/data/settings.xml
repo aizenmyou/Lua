@@ -67,9 +67,10 @@
     <freazer>
         <display>
             <pos>
-                <x>507</x>
-                <y>79</y>
+                <x>1588</x>
+                <y>219</y>
             </pos>
         </display>
+        <visible>false</visible>
     </freazer>
 </settings>

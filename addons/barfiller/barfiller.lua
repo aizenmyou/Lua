@@ -85,6 +85,8 @@ windower.register_event('addon command',function(command, ...)
             windower.add_to_chat(8,'BarFiller successfully unloaded.')
         elseif first_cmd == 'help' or first_cmd == 'h' then
             display_help()
+		elseif first_cmd == 'save' then
+			settings:save()
         end
     else
         display_help()
